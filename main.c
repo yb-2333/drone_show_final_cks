@@ -11,7 +11,7 @@
  *  main() 返回 0 表示正常退出，非0表示异常退出。
  *
  *  编译命令（在 drone_light_show_cks 目录下执行）：
- *    gcc common.c utils.c drone.c render.c ui.c input.c main.c \
+ *    gcc common.c utils.c drone.c render.c ui.c input.c safety.c main.c \
  *        -o drone_light_show -lraylib -lopengl32 -lgdi32 -lwinmm
  ******************************************************************************/
 #include "common.h"     // 全局变量：M, Cam, D, S, N, mt, msg, Bg, Bl, Gr, Gn, Ye, PW
@@ -39,6 +39,13 @@ int main(void) {
     Cam.fovy       = 50;                         // 视场角（视角广度，度）
     Cam.projection = CAMERA_PERSPECTIVE;          // 透视投影（近大远小）
 
+    /* ---- 相机球坐标参数（用于旋转视角） ---- */
+    /* 把初始位置换算成「距离 + 水平角 + 俯仰角」，方便后面绕目标环绕 */
+    Vector3 off0  = Vector3Subtract(Cam.position, Cam.target);  // 目标指向相机的向量
+    float camDist  = Vector3Length(off0);       // 相机到目标的距离
+    float camYaw   = atan2f(off0.x, off0.z);    // 水平环绕角（绕Y轴，弧度）
+    float camPitch = asinf(off0.y / camDist);   // 俯仰角（相对水平面，弧度）
+
     /* ==================== 主循环 ==================== */
     /* WindowShouldClose() 在用户点关闭按钮时返回 true，循环结束 */
     while (!WindowShouldClose()) {
@@ -49,21 +56,30 @@ int main(void) {
         /* ---- 鼠标滚轮缩放 ---- */
         float wh = GetMouseWheelMove();         // 滚轮滚动量（+放大/-缩小）
         if (wh != 0) {
-            /* 计算相机到目标的方向向量 */
-            Vector3 dir = Vector3Subtract(Cam.position, Cam.target);
-            float len = Vector3Length(dir);     // 当前距离
+            if (wh > 0) camDist *= 0.9f;        // 前滚→靠近（放大）
+            else        camDist *= 1.1f;        // 后滚→远离（缩小）
+            if (camDist < 5)  camDist = 5;      // 最近5米
+            if (camDist > 60) camDist = 60;     // 最远60米
+        }
 
-            /* 根据滚轮方向缩放距离 */
-            if (wh > 0) len *= 0.9f;            // 前滚→靠近（放大）
-            else        len *= 1.1f;            // 后滚→远离（缩小）
+        /* ---- 鼠标右键拖拽：环绕旋转视角 ---- */
+        if (IsMouseButtonDown(MOUSE_RIGHT_BUTTON)) {
+            Vector2 d = GetMouseDelta();        // 本帧鼠标移动量
+            camYaw   -= d.x * 0.01f;            // 左右拖动→水平环绕
+            camPitch += d.y * 0.01f;            // 上下拖动→改变俯仰
+            if (camPitch >  1.5f) camPitch =  1.5f;  // 限制俯仰角（≈86°）
+            if (camPitch < -1.5f) camPitch = -1.5f;  // 避免翻转到地面以下
+        }
 
-            /* 限制缩放范围：5米~60米 */
-            if (len < 5)  len = 5;
-            if (len > 60) len = 60;
-
-            /* 方向归一化→乘以新距离→加回target=新相机位置 */
-            dir = Vector3Scale(Vector3Normalize(dir), len);
-            Cam.position = Vector3Add(Cam.target, dir);
+        /* ---- 根据球坐标重新计算相机位置（缩放/旋转/聚焦后都生效） ---- */
+        {
+            float cy = cosf(camPitch);          // 俯仰角余弦 = 水平分量系数
+            Vector3 off = {
+                camDist * cy * sinf(camYaw),    // X = 水平分量 × 水平角正弦
+                camDist * sinf(camPitch),       // Y = 高度
+                camDist * cy * cosf(camYaw)     // Z = 水平分量 × 水平角余弦
+            };
+            Cam.position = Vector3Add(Cam.target, off);  // 目标 + 偏移 = 相机位置
         }
 
         /* ---- 初始界面处理 ---- */
@@ -100,7 +116,7 @@ int main(void) {
         DrawText("F1=Setup F2=Edit F3=Show", 12, hy + 20, 11, Gr);
         DrawText("Tab=Next  1/2/3=Light",    12, hy + 34, 11, Gr);
         DrawText("Click 3D=Select  F=Focus", 12, hy + 48, 11, Gr);
-        DrawText("Scroll=Zoom",              12, hy + 62, 11, Gr);
+        DrawText("Scroll=Zoom  R-Drag=Rotate", 12, hy + 62, 11, Gr);
 
         /* 状态栏：当前模式 + 无人机数量 */
         DrawText(TextFormat("Mode:%s  Drones:%d",
