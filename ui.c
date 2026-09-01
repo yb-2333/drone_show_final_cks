@@ -11,6 +11,7 @@
 #include "common.h"     // 所有全局变量
 #include "utils.h"      // Btn, Txt, Sep, Sld, In
 #include "drone.h"      // MakeDrone, DelDrone, Rst
+#include "safety.h"     // RunSafetyCheck, collisions, violations（安全检测UI）
 
 /* ---- UI面板的坐标宏（只在 ui.c 内使用） ---- */
 /* PX = 面板左边界X, X = 内容区起始X, W = 内容区宽度 */
@@ -256,6 +257,55 @@ void DrawUI(void) {
             y += 14;
             if (Btn((Rectangle){x, (float)y, w, 22}, "<- Back to Setup", Bt))
                 M = M_SETUP;
+        }
+
+        /* ---- 安全检测（针对所有无人机，与是否选中无关） ---- */
+        y += 28;                            // 让出上一步按钮（高22）的高度 + 间距
+        Sep(x, y, w);
+        y += 6;
+
+        if (Btn((Rectangle){x, (float)y, w, 22}, "Safety Check", Gn))
+            RunSafetyCheck();               // 点击运行检测
+        y += 26;
+
+        if (safetyChecked) {                // 至少运行过一次才显示结果
+            if (nCollisions + nViolations == 0) {
+                DrawText("All safe - no issues", x, y, 12, Gn);
+                y += 14;
+            } else {
+                DrawText(TextFormat("Collision:%d  Violation:%d",
+                                    nCollisions, nViolations), x, y, 12, Rd);
+                y += 15;
+
+                int shown = 0;
+                /* 碰撞风险列表（最多显示4条） */
+                for (int i = 0; i < nCollisions && shown < 4; i++) {
+                    Collision* c = &collisions[i];
+                    if (c->a >= N || c->b >= N) continue;   // 无人机已删除，跳过
+                    DrawText(TextFormat("%s x %s @%.1fs (%.2fm)",
+                            D[c->a].name, D[c->b].name, c->t, c->dist),
+                            x + 4, y, 11, Rd);
+                    y += 13;
+                    shown++;
+                }
+                /* 越界违规列表（最多显示6条） */
+                for (int i = 0; i < nViolations && shown < 6; i++) {
+                    Violation* v = &violations[i];
+                    if (v->drone >= N) continue;            // 无人机已删除，跳过
+                    char line[48];
+                    if (v->wp < 0)
+                        snprintf(line, sizeof(line), "%s start out of range",
+                                 D[v->drone].name);
+                    else
+                        snprintf(line, sizeof(line), "%s wp#%d out of range",
+                                 D[v->drone].name, v->wp + 1);
+                    DrawText(line, x + 4, y, 11, Ye);
+                    y += 13;
+                    shown++;
+                }
+                if (nCollisions + nViolations > shown)
+                    DrawText("... more ...", x + 4, y, 11, Gr);
+            }
         }
     }
 
