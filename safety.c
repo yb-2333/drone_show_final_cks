@@ -33,6 +33,9 @@ Violation violations[MAX_VIOLATIONS];   // 越界违规列表
 int       nViolations = 0;              // 越界违规数量
 bool      safetyChecked = false;        // 是否运行过检测
 
+bool      alertActive = false;          // 是否正在显示实时告警弹窗
+char      alertMsg[256] = "";           // 实时告警弹窗文字
+
 /* ================================================================
  *  Dist() - 计算两个三维点之间的欧几里得距离
  * ================================================================ */
@@ -191,5 +194,50 @@ int SafetyWarn(int i) {
         if (collisions[k].a == i || collisions[k].b == i) return 1;
     for (int k = 0; k < nViolations; k++)
         if (violations[k].drone == i) return 1;
+    return 0;
+}
+
+/* ================================================================
+ *  LiveCheck() - 实时安全检测（播放过程中每帧调用）
+ *
+ *  与 RunSafetyCheck（静态预判）不同，这里检查的是无人机"当前时刻"
+ *  的实际位置。发现越界或碰撞就设置告警弹窗并返回 1。
+ *
+ *  返回 1=检测到问题（弹窗已设置）, 0=一切正常。
+ * ================================================================ */
+int LiveCheck(void) {
+    /* ---- 1. 越界检测（当前实时位置） ---- */
+    for (int i = 0; i < N; i++) {
+        Drone* d = &D[i];
+        if (!d->act) continue;
+
+        Pt p = d->pos;                      // 当前实际位置
+        if (p.x < AIR_X_MIN || p.x > AIR_X_MAX ||
+            p.y < AIR_Y_MIN || p.y > AIR_Y_MAX ||
+            p.z < AIR_Z_MIN || p.z > AIR_Z_MAX) {
+            snprintf(alertMsg, sizeof(alertMsg),
+                     "%s out of bounds (%.1f, %.1f, %.1f)",
+                     d->name, p.x, p.y, p.z);
+            alertActive = true;
+            return 1;
+        }
+    }
+
+    /* ---- 2. 碰撞检测（当前两两距离） ---- */
+    for (int i = 0; i < N; i++) {
+        if (!D[i].act) continue;
+        for (int j = i + 1; j < N; j++) {
+            if (!D[j].act) continue;
+            float d = Dist(D[i].pos, D[j].pos);
+            if (d < SAFE_DIST) {
+                snprintf(alertMsg, sizeof(alertMsg),
+                         "%s too close to %s (%.2fm)",
+                         D[i].name, D[j].name, d);
+                alertActive = true;
+                return 1;
+            }
+        }
+    }
+
     return 0;
 }

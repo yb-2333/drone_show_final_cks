@@ -351,3 +351,40 @@ void DrawUI(void) {
         DrawText("Space=Play/Pause  Esc=Stop", x, y, 11, Gr);
     }
 }
+
+/* ================================================================
+ *  DrawAlert() - 绘制实时安全告警弹窗
+ *
+ *  播放中检测到越界或碰撞时，弹出一个居中的模态对话框，
+ *  显示问题详情。点击 OK 关闭弹窗并停止回放。
+ * ================================================================ */
+void DrawAlert(void) {
+    if (!alertActive) return;               // 没有告警就不画
+
+    int sw = GetScreenWidth();
+    int sh = GetScreenHeight();
+
+    /* 半透明遮罩，盖住整个窗口，制造"模态"效果 */
+    DrawRectangle(0, 0, sw, sh, Fade(BLACK, 0.6f));
+
+    /* 弹窗矩形（居中） */
+    Rectangle box = { sw / 2.0f - 210, sh / 2.0f - 100, 420, 200 };
+    DrawRectangleRec(box, (Color){42, 44, 60, 255});
+    DrawRectangleLinesEx(box, 2, Rd);       // 红色边框
+
+    /* 标题 */
+    DrawText("Safety Warning", (int)box.x + 20, (int)box.y + 16, 20, Rd);
+
+    /* 分隔线 */
+    Sep((int)box.x + 20, (int)box.y + 48, (int)box.width - 40);
+
+    /* 详情文字 */
+    DrawText(alertMsg, (int)box.x + 20, (int)box.y + 60, 15, Wh);
+
+    /* OK 按钮：关闭弹窗并停止回放 */
+    Rectangle ok = { box.x + box.width - 90, box.y + box.height - 40, 70, 26 };
+    if (Btn(ok, "OK", Gn)) {
+        alertActive = false;                // 关闭弹窗
+        Rst();                              // 停止并重置回放
+    }
+}

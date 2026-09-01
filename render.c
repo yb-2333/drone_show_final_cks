@@ -76,6 +76,8 @@ void Draw3D(void) {
  *        检查这条线穿过了哪些3D物体。
  * ================================================================ */
 int Pick(void) {
+    if (alertActive) return -1;             // 弹窗显示时不拾取（防止点OK误选无人机）
+
     Vector2 m = GetMousePosition();         // 鼠标屏幕坐标
 
     /* 鼠标在右侧UI面板上 → 不拾取（防止点UI误选3D物体） */

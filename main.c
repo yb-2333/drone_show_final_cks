@@ -134,6 +134,8 @@ int main(void) {
         DrawText(TextFormat("FPS:%d", GetFPS()),
                  GetScreenWidth() - PW - 50, 6, 11, Gr);
 
+        DrawAlert();                            // 绘制安全告警弹窗（有告警时才显示）
+
         EndDrawing();                           // ④ 提交绘制帧
     }
 
