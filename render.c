@@ -36,15 +36,26 @@ void Draw3D(void) {
     DrawSphere((Vector3){0, 0.02f, 0}, 0.25f, Rd);    // 红色小圆球
 
     /* ---- 三色坐标轴 ---- */
-    DrawLine3D((Vector3){0, 0, 0}, (Vector3){S, 0, 0}, Rd);  // X轴=红色
-    DrawLine3D((Vector3){0, 0, 0}, (Vector3){0, S, 0}, Gn);  // Y轴=绿色（高度）
-    DrawLine3D((Vector3){0, 0, 0}, (Vector3){0, 0, S}, Bl);  // Z轴=蓝色
+    /* X、Z 轴平行于地面网格；Y 轴垂直于网格（向上，即高度方向） */
+    DrawLine3D((Vector3){0, 0, 0}, (Vector3){S, 0, 0}, Rd);  // X轴=红色（平行网格）
+    DrawLine3D((Vector3){0, 0, 0}, (Vector3){0, S, 0}, Bl);  // Y轴=蓝色（垂直网格）
+    DrawLine3D((Vector3){0, 0, 0}, (Vector3){0, 0, S}, Gn);  // Z轴=绿色（平行网格）
 
     /* ---- 绘制所有无人机 ---- */
     for (int i = 0; i < N; i++)
         DD(&D[i]);                          // 委托 drone.c 的 DD 函数
 
     EndMode3D();                            // 退出3D模式
+
+    /* ---- 坐标轴标签（大写 X / Y / Z） ---- */
+    /* 用 GetWorldToScreen 把3D轴端点投影到2D屏幕坐标，再在屏幕上方画文字标签 */
+    float L = S + 2.0f;                     // 标签位置：略超出轴末端（避免与线重叠）
+    Vector2 ptx = GetWorldToScreen((Vector3){L, 0, 0}, Cam);   // X轴末端的屏幕位置
+    Vector2 pty = GetWorldToScreen((Vector3){0, L, 0}, Cam);   // Y轴末端的屏幕位置
+    Vector2 ptz = GetWorldToScreen((Vector3){0, 0, L}, Cam);   // Z轴末端的屏幕位置
+    DrawText("X", (int)ptx.x, (int)ptx.y, 16, Rd);   // X标签（红色，与X轴同色）
+    DrawText("Y", (int)pty.x, (int)pty.y, 16, Bl);   // Y标签（蓝色，与Y轴同色）
+    DrawText("Z", (int)ptz.x, (int)ptz.y, 16, Gn);   // Z标签（绿色，与Z轴同色）
 }
 
 /* ================================================================

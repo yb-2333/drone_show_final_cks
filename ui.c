@@ -88,12 +88,12 @@ void DrawUI(void) {
         DrawText("Position:", x, y, 12, Gr);
         y += 14;
 
-        DrawText("X", x,         y + 3, 14, Rd);        // X标签（红色)
-        Txt((Rectangle){x + 14,  (float)y, 60, 24}, sx, 15, "");
-        DrawText("Y", x + 80,    y + 3, 14, Gn);        // Y标签（绿色）
-        Txt((Rectangle){x + 94,  (float)y, 60, 24}, sy, 15, "");
-        DrawText("Z", x + 160,   y + 3, 14, Bl);        // Z标签（蓝色）
-        Txt((Rectangle){x + 174, (float)y, 60, 24}, sz, 15, "");
+        DrawText("X", x,         y + 2, 20, Rd);        // X标签（红色)
+        Txt((Rectangle){x + 16,  (float)y, 60, 24}, sx, 15, "");
+        DrawText("Y", x + 82,    y + 2, 20, Gn);        // Y标签（绿色）
+        Txt((Rectangle){x + 96,  (float)y, 60, 24}, sy, 15, "");
+        DrawText("Z", x + 164,   y + 2, 20, Bl);        // Z标签（蓝色）
+        Txt((Rectangle){x + 178, (float)y, 60, 24}, sz, 15, "");
         y += 30;
 
         /* 颜色选择 */
@@ -193,12 +193,12 @@ void DrawUI(void) {
             DrawText("Add Waypoint:", x, y, 12, Gr);
             y += 14;
 
-            DrawText("X", x,         y + 3, 14, Rd);
-            Txt((Rectangle){x + 14,  (float)y, 60, 24}, wx, 15, "");
-            DrawText("Y", x + 80,    y + 3, 14, Gn);
-            Txt((Rectangle){x + 94,  (float)y, 60, 24}, wy, 15, "");
-            DrawText("Z", x + 160,   y + 3, 14, Bl);
-            Txt((Rectangle){x + 174, (float)y, 60, 24}, wz, 15, "");
+            DrawText("X", x,         y + 2, 20, Rd);
+            Txt((Rectangle){x + 16,  (float)y, 60, 24}, wx, 15, "");
+            DrawText("Y", x + 82,    y + 2, 20, Gn);
+            Txt((Rectangle){x + 96,  (float)y, 60, 24}, wy, 15, "");
+            DrawText("Z", x + 164,   y + 2, 20, Bl);
+            Txt((Rectangle){x + 178, (float)y, 60, 24}, wz, 15, "");
             y += 30;
 
             if (Btn((Rectangle){x, (float)y, w, 24}, "+ Add Waypoint", Bl)) {

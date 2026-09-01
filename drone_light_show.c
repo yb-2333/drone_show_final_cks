@@ -126,8 +126,8 @@ static char sz[16] = "0";   // Start Z：起始Z坐标
 static int  ic     = 0;     // 当前选中的颜色索引（Initial Color），0=红,1=绿,2=蓝
 
 /* Edit 模式的表单数据——用于输入新增路径点的坐标 */
-static char wx[16] = "5";   // Waypoint X：路径点X坐标
-static char wy[16] = "5";   // Waypoint Y：路径点Y坐标（高度）
+static char wx[16] = "0";   // Waypoint X：路径点X坐标
+static char wy[16] = "0";   // Waypoint Y：路径点Y坐标（高度）
 static char wz[16] = "0";   // Waypoint Z：路径点Z坐标
 
 /* Show 模式——播放控制 */
@@ -666,15 +666,25 @@ static void Draw3D(void) {
     DrawSphere((Vector3){0, 0.02f, 0}, 0.25f, Rd);  // 在原点画一个红色小球
 
     /* ---- 三色坐标轴 ---- */
-    DrawLine3D((Vector3){0, 0, 0}, (Vector3){S, 0, 0}, Rd);  // X轴=红色（地面水平方向）
-    DrawLine3D((Vector3){0, 0, 0}, (Vector3){0, S, 0}, Gn);  // Y轴=绿色（垂直高度方向）
-    DrawLine3D((Vector3){0, 0, 0}, (Vector3){0, 0, S}, Bl);  // Z轴=蓝色（地面深度方向）
+    /* X、Z 轴平行于地面网格；Y 轴垂直于网格（向上，即高度方向） */
+    DrawLine3D((Vector3){0, 0, 0}, (Vector3){S, 0, 0}, Rd);  // X轴=红色（平行网格）
+    DrawLine3D((Vector3){0, 0, 0}, (Vector3){0, S, 0}, Bl);  // Y轴=蓝色（垂直网格）
+    DrawLine3D((Vector3){0, 0, 0}, (Vector3){0, 0, S}, Gn);  // Z轴=绿色（平行网格）
 
     /* ---- 绘制所有无人机 ---- */
     for (int i = 0; i < N; i++)
         DD(&D[i]);                          // 调用DD函数画每一架无人机
 
     EndMode3D();                            // 退出3D渲染模式（必须与BeginMode3D配对）
+
+    /* ---- 坐标轴标签（大写 X / Y / Z） ---- */
+    float L = S + 2.0f;                     // 标签位置：略超出轴末端
+    Vector2 ptx = GetWorldToScreen((Vector3){L, 0, 0}, Cam);   // X轴末端的屏幕位置
+    Vector2 pty = GetWorldToScreen((Vector3){0, L, 0}, Cam);   // Y轴末端的屏幕位置
+    Vector2 ptz = GetWorldToScreen((Vector3){0, 0, L}, Cam);   // Z轴末端的屏幕位置
+    DrawText("X", (int)ptx.x, (int)ptx.y, 16, Rd);   // X标签（红色）
+    DrawText("Y", (int)pty.x, (int)pty.y, 16, Bl);   // Y标签（蓝色）
+    DrawText("Z", (int)ptz.x, (int)ptz.y, 16, Gn);   // Z标签（绿色）
 }
 
 /*
@@ -784,16 +794,16 @@ static void DrawUI(void) {
         y += 14;
 
         /* X坐标输入 */
-        DrawText("X", x, y + 3, 14, Rd);                    // 标签"X"（红色）
-        Txt((Rectangle){x + 14, (float)y, 60, 24}, sx, 15, "");  // X输入框
+        DrawText("X", x, y + 2, 20, Rd);                    // 标签"X"（红色）
+        Txt((Rectangle){x + 16, (float)y, 60, 24}, sx, 15, "");  // X输入框
 
         /* Y坐标输入 */
-        DrawText("Y", x + 80, y + 3, 14, Gn);               // 标签"Y"（绿色）
-        Txt((Rectangle){x + 94, (float)y, 60, 24}, sy, 15, "");  // Y输入框
+        DrawText("Y", x + 82, y + 2, 20, Gn);               // 标签"Y"（绿色）
+        Txt((Rectangle){x + 96, (float)y, 60, 24}, sy, 15, "");  // Y输入框
 
         /* Z坐标输入 */
-        DrawText("Z", x + 160, y + 3, 14, Bl);              // 标签"Z"（蓝色）
-        Txt((Rectangle){x + 174, (float)y, 60, 24}, sz, 15, ""); // Z输入框
+        DrawText("Z", x + 164, y + 2, 20, Bl);              // 标签"Z"（蓝色）
+        Txt((Rectangle){x + 178, (float)y, 60, 24}, sz, 15, ""); // Z输入框
         y += 30;
 
         /* 颜色选择区 */
@@ -899,12 +909,12 @@ static void DrawUI(void) {
             y += 14;
 
             /* 路径点X/Y/Z输入框 */
-            DrawText("X", x,         y + 3, 14, Rd);
-            Txt((Rectangle){x + 14,  (float)y, 60, 24}, wx, 15, "");
-            DrawText("Y", x + 80,    y + 3, 14, Gn);
-            Txt((Rectangle){x + 94,  (float)y, 60, 24}, wy, 15, "");
-            DrawText("Z", x + 160,   y + 3, 14, Bl);
-            Txt((Rectangle){x + 174, (float)y, 60, 24}, wz, 15, "");
+            DrawText("X", x,         y + 2, 20, Rd);
+            Txt((Rectangle){x + 16,  (float)y, 60, 24}, wx, 15, "");
+            DrawText("Y", x + 82,    y + 2, 20, Gn);
+            Txt((Rectangle){x + 96,  (float)y, 60, 24}, wy, 15, "");
+            DrawText("Z", x + 164,   y + 2, 20, Bl);
+            Txt((Rectangle){x + 178, (float)y, 60, 24}, wz, 15, "");
             y += 30;
 
             /* "添加路径点"按钮 */
