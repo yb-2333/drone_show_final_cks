@@ -1,0 +1,53 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "type": "cppbuild",
+      "label": "build drone_light_show",
+      "command": "D:/mingw64/bin/gcc.exe",
+      "args": [
+        "-fdiagnostics-color=always",
+        "-g",
+        "common.c",
+        "utils.c",
+        "drone.c",
+        "render.c",
+        "ui.c",
+        "input.c",
+        "safety.c",
+        "main.c",
+        "-o",
+        "drone_light_show.exe",
+        "-I",
+        "raylib/include",
+        "-L",
+        "raylib/lib",
+        "-lraylibdll",
+        "-lopengl32",
+        "-lgdi32",
+        "-lwinmm"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": ["$gcc"],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "detail": "编译多文件源码 → drone_light_show.exe"
+    },
+    {
+      "type": "cppbuild",
+      "label": "run drone_light_show",
+      "command": "${workspaceFolder}\\drone_light_show.exe",
+      "args": [],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "dependsOn": ["build drone_light_show"],
+      "problemMatcher": [],
+      "detail": "编译后运行程序"
+    }
+  ]
+}
