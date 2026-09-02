@@ -15,6 +15,7 @@
         "ui.c",
         "input.c",
         "safety.c",
+        "fileio.c",
         "main.c",
         "-o",
         "drone_light_show.exe",

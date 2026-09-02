@@ -4,7 +4,7 @@
 set -e
 cd "$(dirname "$0")"
 
-gcc common.c utils.c drone.c render.c ui.c input.c safety.c main.c \
+gcc common.c utils.c drone.c render.c ui.c input.c safety.c fileio.c main.c \
     -o drone_light_show.exe \
     -Iraylib/include -Lraylib/lib \
     -lraylibdll -lopengl32 -lgdi32 -lwinmm

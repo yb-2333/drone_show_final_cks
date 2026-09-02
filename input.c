@@ -13,6 +13,7 @@
 #include "common.h"     // 全局变量：N, S, M, D, txtFocus, play, pause, Cam 等
 #include "drone.h"      // MakeDrone, DelDrone, Rst, Upd
 #include "safety.h"     // LiveCheck（播放时实时安全检测）
+#include "fileio.h"     // SaveTraj / LoadTraj（轨迹保存/加载）
 
 /* ================================================================
  *  Keys() - 处理键盘快捷键
@@ -29,6 +30,8 @@
  *    Esc      → Show模式停止
  *    F        → 相机聚焦选中无人机
  *    F1/F2/F3 → 快速切换模式
+ *    Ctrl+S   → 保存轨迹到文件
+ *    Ctrl+L   → 从文件加载轨迹
  * ================================================================ */
 void Keys(void) {
     /* Tab：切换选中 */
@@ -92,6 +95,14 @@ void Keys(void) {
     if (IsKeyPressed(KEY_F1)) M = M_SETUP;
     if (IsKeyPressed(KEY_F2)) M = M_EDIT;
     if (IsKeyPressed(KEY_F3)) { M = M_SHOW; Rst(); }
+
+    /* Ctrl+S：保存轨迹 / Ctrl+L：加载轨迹（文字输入框激活时不响应） */
+    if (M != M_INTRO && !txtFocus) {
+        if (IsKeyDown(KEY_LEFT_CONTROL) && IsKeyPressed(KEY_S))
+            SaveTraj(TRAJ_FILENAME);
+        if (IsKeyDown(KEY_LEFT_CONTROL) && IsKeyPressed(KEY_L))
+            LoadTraj(TRAJ_FILENAME);
+    }
 }
 
 /* ================================================================
