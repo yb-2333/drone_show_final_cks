@@ -14,4 +14,7 @@ void DrawUI(void);
 /* 绘制初始欢迎界面（按任意键开始） */
 void DrawStartScreen(void);
 
+/* 绘制实时安全告警弹窗（有告警时才显示） */
+void DrawAlert(void);
+
 #endif  /* UI_H */

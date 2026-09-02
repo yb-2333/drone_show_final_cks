@@ -12,6 +12,7 @@
 #include "input.h"      // 自己的头文件
 #include "common.h"     // 全局变量：N, S, M, D, txtFocus, play, pause, Cam 等
 #include "drone.h"      // MakeDrone, DelDrone, Rst, Upd
+#include "safety.h"     // LiveCheck（播放时实时安全检测）
 
 /* ================================================================
  *  Keys() - 处理键盘快捷键
@@ -127,5 +128,10 @@ void Update(float dt) {
     }
 
     /* Show模式：驱动回放动画 */
-    if (M == M_SHOW) Upd(dt);
+    if (M == M_SHOW) {
+        Upd(dt);
+        /* 实时安全检测：播放中若越界或碰撞，暂停并弹窗 */
+        if (play && !pause && LiveCheck())
+            pause = true;
+    }
 }

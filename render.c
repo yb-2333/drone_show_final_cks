@@ -6,6 +6,7 @@
 #include "render.h"     // 自己的头文件
 #include "common.h"     // 全局变量：Cam, GROUND, N, D, PW, Gr, Rd, Gn, Bl
 #include "drone.h"      // DD() 绘制无人机函数
+#include "safety.h"     // SafetyWarn, violations, nViolations（安全检测高亮）
 
 /* ================================================================
  *  Draw3D() - 绘制整个3D场景
@@ -45,6 +46,24 @@ void Draw3D(void) {
     for (int i = 0; i < N; i++)
         DD(&D[i]);                          // 委托 drone.c 的 DD 函数
 
+    /* ---- 安全检测高亮 ---- */
+    for (int i = 0; i < N; i++) {
+        if (!D[i].act) continue;            // 跳过不存在的
+        if (SafetyWarn(i))                  // 被检测标记为有问题的无人机
+            DrawCircle3D((Vector3){D[i].pos.x, D[i].pos.y, D[i].pos.z},
+                         DR * 2.5f, (Vector3){0, 1, 0}, 0, Rd);  // 红色醒目环
+    }
+
+    /* 越界的路径点用红色小球标出 */
+    for (int k = 0; k < nViolations; k++) {
+        Violation* v = &violations[k];
+        if (v->drone >= N) continue;        // 无人机可能已被删除，跳过
+        if (v->wp >= 0 && v->wp < D[v->drone].wc) {
+            Pt p = D[v->drone].wp[v->wp].p;
+            DrawSphere((Vector3){p.x, p.y, p.z}, DR * 0.8f, Rd);
+        }
+    }
+
     EndMode3D();                            // 退出3D模式
 
     /* ---- 坐标轴标签（大写 X / Y / Z） ---- */
@@ -68,6 +87,8 @@ void Draw3D(void) {
  *        检查这条线穿过了哪些3D物体。
  * ================================================================ */
 int Pick(void) {
+    if (alertActive) return -1;             // 弹窗显示时不拾取（防止点OK误选无人机）
+
     Vector2 m = GetMousePosition();         // 鼠标屏幕坐标
 
     /* 鼠标在右侧UI面板上 → 不拾取（防止点UI误选3D物体） */

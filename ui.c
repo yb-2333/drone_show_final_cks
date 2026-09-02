@@ -11,6 +11,7 @@
 #include "common.h"     // 所有全局变量
 #include "utils.h"      // Btn, Txt, Sep, Sld, In
 #include "drone.h"      // MakeDrone, DelDrone, Rst
+#include "safety.h"     // RunSafetyCheck, collisions, violations（安全检测UI）
 
 /* ---- UI面板的坐标宏（只在 ui.c 内使用） ---- */
 /* PX = 面板左边界X, X = 内容区起始X, W = 内容区宽度 */
@@ -208,8 +209,14 @@ void DrawUI(void) {
                     float pz = (float)atof(wz);
                     if (py < 0.5f) py = 0.5f;
                     if (py > 30)   py = 30;
-                    d->wp[d->wc].p = (Pt){px, py, pz};
-                    d->wc++;
+                    Pt wp = (Pt){px, py, pz};
+                    /* 路径点越界检查：越界则弹窗提示，不加入 */
+                    if (!InAirspace(wp)) {
+                        SetAlert("Waypoint out of range (%.1f, %.1f, %.1f)", px, py, pz);
+                    } else {
+                        d->wp[d->wc].p = wp;
+                        d->wc++;
+                    }
                 } else {
                     Msg("Max waypoints!");
                 }
@@ -257,6 +264,55 @@ void DrawUI(void) {
             if (Btn((Rectangle){x, (float)y, w, 22}, "<- Back to Setup", Bt))
                 M = M_SETUP;
         }
+
+        /* ---- 安全检测（针对所有无人机，与是否选中无关） ---- */
+        y += 28;                            // 让出上一步按钮（高22）的高度 + 间距
+        Sep(x, y, w);
+        y += 6;
+
+        if (Btn((Rectangle){x, (float)y, w, 22}, "Safety Check", Gn))
+            RunSafetyCheck();               // 点击运行检测
+        y += 26;
+
+        if (safetyChecked) {                // 至少运行过一次才显示结果
+            if (nCollisions + nViolations == 0) {
+                DrawText("All safe - no issues", x, y, 12, Gn);
+                y += 14;
+            } else {
+                DrawText(TextFormat("Collision:%d  Violation:%d",
+                                    nCollisions, nViolations), x, y, 12, Rd);
+                y += 15;
+
+                int shown = 0;
+                /* 碰撞风险列表（最多显示4条） */
+                for (int i = 0; i < nCollisions && shown < 4; i++) {
+                    Collision* c = &collisions[i];
+                    if (c->a >= N || c->b >= N) continue;   // 无人机已删除，跳过
+                    DrawText(TextFormat("%s x %s @%.1fs (%.2fm)",
+                            D[c->a].name, D[c->b].name, c->t, c->dist),
+                            x + 4, y, 11, Rd);
+                    y += 13;
+                    shown++;
+                }
+                /* 越界违规列表（最多显示6条） */
+                for (int i = 0; i < nViolations && shown < 6; i++) {
+                    Violation* v = &violations[i];
+                    if (v->drone >= N) continue;            // 无人机已删除，跳过
+                    char line[48];
+                    if (v->wp < 0)
+                        snprintf(line, sizeof(line), "%s start out of range",
+                                 D[v->drone].name);
+                    else
+                        snprintf(line, sizeof(line), "%s wp#%d out of range",
+                                 D[v->drone].name, v->wp + 1);
+                    DrawText(line, x + 4, y, 11, Ye);
+                    y += 13;
+                    shown++;
+                }
+                if (nCollisions + nViolations > shown)
+                    DrawText("... more ...", x + 4, y, 11, Gr);
+            }
+        }
     }
 
     /* ==================== SHOW 模式 ==================== */
@@ -299,5 +355,42 @@ void DrawUI(void) {
 
         /* 快捷键提示 */
         DrawText("Space=Play/Pause  Esc=Stop", x, y, 11, Gr);
+    }
+}
+
+/* ================================================================
+ *  DrawAlert() - 绘制实时安全告警弹窗
+ *
+ *  播放中检测到越界或碰撞时，弹出一个居中的模态对话框，
+ *  显示问题详情。点击 OK 关闭弹窗并停止回放。
+ * ================================================================ */
+void DrawAlert(void) {
+    if (!alertActive) return;               // 没有告警就不画
+
+    int sw = GetScreenWidth();
+    int sh = GetScreenHeight();
+
+    /* 半透明遮罩，盖住整个窗口，制造"模态"效果 */
+    DrawRectangle(0, 0, sw, sh, Fade(BLACK, 0.6f));
+
+    /* 弹窗矩形（居中） */
+    Rectangle box = { sw / 2.0f - 210, sh / 2.0f - 100, 420, 200 };
+    DrawRectangleRec(box, (Color){42, 44, 60, 255});
+    DrawRectangleLinesEx(box, 2, Rd);       // 红色边框
+
+    /* 标题 */
+    DrawText("Safety Warning", (int)box.x + 20, (int)box.y + 16, 20, Rd);
+
+    /* 分隔线 */
+    Sep((int)box.x + 20, (int)box.y + 48, (int)box.width - 40);
+
+    /* 详情文字 */
+    DrawText(alertMsg, (int)box.x + 20, (int)box.y + 60, 15, Wh);
+
+    /* OK 按钮：关闭弹窗并停止回放 */
+    Rectangle ok = { box.x + box.width - 90, box.y + box.height - 40, 70, 26 };
+    if (Btn(ok, "OK", Gn)) {
+        alertActive = false;                // 关闭弹窗
+        Rst();                              // 停止并重置回放
     }
 }

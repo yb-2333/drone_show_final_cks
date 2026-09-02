@@ -14,16 +14,18 @@
 
 ## 编译 Compile
 
-需要 [raylib](https://www.raylib.com/) 库。
+raylib 6.0 库已随项目附带在 `raylib/` 目录（头文件 + 导入库），`raylib.dll` 在项目根目录，无需额外下载。
 
 ```bash
-gcc drone_light_show.c -o drone_light_show -lraylibdll -lopengl32 -lgdi32 -lwinmm
+gcc common.c utils.c drone.c render.c ui.c input.c safety.c main.c \
+    -o drone_light_show.exe \
+    -Iraylib/include -Lraylib/lib \
+    -lraylibdll -lopengl32 -lgdi32 -lwinmm
 ```
 
-如果使用静态库:
-```bash
-gcc drone_light_show.c -o drone_light_show -lraylib -lopengl32 -lgdi32 -lwinmm
-```
+或直接运行一键脚本：`bash build.sh`
+
+> 说明：`raylib/lib/libraylib.a`（静态库）是 MSVC 编译的，与 MinGW 不兼容，需使用 `-lraylibdll` 动态链接。
 
 ## 操作说明
 
@@ -67,8 +69,12 @@ gcc drone_light_show.c -o drone_light_show -lraylib -lopengl32 -lgdi32 -lwinmm
 
 ## 项目文件
 
-- `drone_light_show.c` -- 完整源代码（单文件）
-- `raylib.dll` -- raylib 动态链接库
+- `main.c` -- 程序入口
+- `drone.c` / `common.c` / `input.c` / `render.c` / `ui.c` / `utils.c` / `safety.c` -- 各模块实现（对应同名 `.h` 头文件）
+- `raylib/` -- raylib 6.0 头文件与导入库
+- `raylib.dll` -- raylib 动态链接库（运行时需与 exe 同目录）
+- `build.sh` -- 一键编译脚本
+- `设计文档.md` / `设计文档.docx` -- 项目设计文档
 - `*.trajectory` -- 轨迹保存文件
 
 ## 文件格式
