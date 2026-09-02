@@ -49,6 +49,9 @@ void RunSafetyCheck(void);
 /* 判断第 i 架无人机是否被检测标记为有问题，返回 1=有问题, 0=正常 */
 int SafetyWarn(int i);
 
+/* 判断一个三维点是否在允许的空域内，返回 1=在范围内, 0=越界 */
+int InAirspace(Pt p);
+
 /* ============================ 实时告警（弹窗） ============================ */
 
 /* 是否正在显示实时告警弹窗 */
@@ -56,6 +59,9 @@ extern bool alertActive;
 
 /* 实时告警内容（弹窗中显示的文字） */
 extern char alertMsg[256];
+
+/* 弹出一个安全告警弹窗（用法同 printf），供创建/编辑时即时提示越界 */
+void SetAlert(const char* fmt, ...);
 
 /* 实时检测当前所有无人机的位置：越界或碰撞则设置告警并返回1，否则返回0 */
 int LiveCheck(void);

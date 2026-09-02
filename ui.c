@@ -209,8 +209,14 @@ void DrawUI(void) {
                     float pz = (float)atof(wz);
                     if (py < 0.5f) py = 0.5f;
                     if (py > 30)   py = 30;
-                    d->wp[d->wc].p = (Pt){px, py, pz};
-                    d->wc++;
+                    Pt wp = (Pt){px, py, pz};
+                    /* 路径点越界检查：越界则弹窗提示，不加入 */
+                    if (!InAirspace(wp)) {
+                        SetAlert("Waypoint out of range (%.1f, %.1f, %.1f)", px, py, pz);
+                    } else {
+                        d->wp[d->wc].p = wp;
+                        d->wc++;
+                    }
                 } else {
                     Msg("Max waypoints!");
                 }

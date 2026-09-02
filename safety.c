@@ -118,6 +118,32 @@ static void CheckPt(int i, int wp, Pt p) {
 }
 
 /* ================================================================
+ *  InAirspace() - 判断一个三维点是否在允许的空域内
+ *
+ *  空域范围：X/Z 在 0~GROUND（40米），Y 在 0.5~30 米。
+ *  返回 1=在范围内, 0=越界。供创建/编辑时即时检查坐标用。
+ * ================================================================ */
+int InAirspace(Pt p) {
+    return p.x >= AIR_X_MIN && p.x <= AIR_X_MAX &&   // X 在界内
+           p.y >= AIR_Y_MIN && p.y <= AIR_Y_MAX &&   // Y 高度在界内
+           p.z >= AIR_Z_MIN && p.z <= AIR_Z_MAX;     // Z 在界内
+}
+
+/* ================================================================
+ *  SetAlert() - 弹出一个安全告警弹窗
+ *
+ *  用法同 printf：SetAlert("起点越界 (%.1f)", x)。
+ *  设置文字并打开 alertActive，交给 ui.c 的 DrawAlert() 绘制。
+ * ================================================================ */
+void SetAlert(const char* fmt, ...) {
+    va_list a;                                  // 可变参数列表
+    va_start(a, fmt);                           // 指向第一个可变参数
+    vsnprintf(alertMsg, sizeof(alertMsg), fmt, a);  // 格式化写入 alertMsg
+    va_end(a);                                  // 清理
+    alertActive = true;                         // 打开弹窗
+}
+
+/* ================================================================
  *  RunSafetyCheck() - 运行完整安全检测
  *
  *  流程：

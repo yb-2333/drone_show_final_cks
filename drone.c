@@ -13,6 +13,7 @@
 #include "drone.h"      // 自己的头文件
 #include "common.h"     // 全局变量：D, N, S, M, sx, sy, sz, ic, LC, LCN 等
 #include "utils.h"      // Msg() 函数
+#include "safety.h"     // InAirspace, SetAlert（创建时起点越界弹窗）
 
 /* ================================================================
  *  MakeDrone() - 创建一架新无人机
@@ -36,6 +37,13 @@ void MakeDrone(void) {
     if (py < 0.5f) py = 0.5f;
     if (py > 30)   py = 30;
 
+    /* 起点越界检查：X/Z 必须在 0~GROUND 内（Y 已在上方钳制），越界则弹窗并放弃创建 */
+    Pt sp = (Pt){px, py, pz};               // 起始位置（复合字面量）
+    if (!InAirspace(sp)) {
+        SetAlert("Start out of range (%.1f, %.1f, %.1f)", px, py, pz);
+        return;
+    }
+
     Drone* d = &D[N];                       // 取第N个槽位的指针
     memset(d, 0, sizeof(Drone));            // 全部内存清零（安全初始化）
     d->act   = 1;                           // 激活
@@ -44,7 +52,7 @@ void MakeDrone(void) {
     d->bon   = 1;                           // 闪烁初始为亮
     d->h     = py;                          // 保存高度
 
-    d->start = (Pt){px, py, pz};            // 设置起始位置（复合字面量）
+    d->start = sp;                          // 设置起始位置
     d->pos   = d->start;                    // 当前位置=起始位置
 
     snprintf(d->name, MAX_NAME, "D-%d", N + 1); // 生成名称 "D-1", "D-2"...
