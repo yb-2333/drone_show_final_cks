@@ -1,9 +1,9 @@
 /******************************************************************************
  *  safety.c  -  无人机安全检测模块实现
  *
- *  包含两类检测：
- *    1. 越界/高度检测 —— 检查每架无人机的起点和路径点是否在空域内
- *    2. 碰撞检测     —— 时间同步模拟整场飞行，找任意两架的最小间距
+ *  包含碰撞检测：时间同步模拟整场飞行，找任意两架的最小间距。
+ *  另外提供 InAirspace（空域范围判断）和 SetAlert（告警弹窗），
+ *  供创建/编辑时即时校验坐标、播放时实时告警使用。
  *
  *  【给初学者】
  *   碰撞检测的核心思路：回放时所有无人机以相同速度同时起飞，
@@ -29,8 +29,6 @@
 /* ============================ 结果全局变量定义 ============================ */
 Collision collisions[MAX_COLLISIONS];   // 碰撞风险列表
 int       nCollisions = 0;              // 碰撞风险数量
-Violation violations[MAX_VIOLATIONS];   // 越界违规列表
-int       nViolations = 0;              // 越界违规数量
 bool      safetyChecked = false;        // 是否运行过检测
 
 bool      alertActive = false;          // 是否正在显示实时告警弹窗
@@ -96,28 +94,6 @@ static Pt PosAt(int i, float s) {
 }
 
 /* ================================================================
- *  CheckPt() - 检查一个点是否越界/高度违规，违规则记录
- *
- *  参数:
- *    i  - 无人机索引
- *    wp - 路径点索引（-1 表示起点）
- *    p  - 要检查的三维坐标
- * ================================================================ */
-static void CheckPt(int i, int wp, Pt p) {
-    if (nViolations >= MAX_VIOLATIONS) return;  // 记录已满
-
-    int kind = -1;                          // 违规类型，-1 = 正常
-    float val = 0;                          // 违规时的坐标值
-
-    if (p.x < AIR_X_MIN || p.x > AIR_X_MAX)      { kind = 0; val = p.x; }  // X越界
-    else if (p.y < AIR_Y_MIN || p.y > AIR_Y_MAX) { kind = 1; val = p.y; }  // 高度违规
-    else if (p.z < AIR_Z_MIN || p.z > AIR_Z_MAX) { kind = 2; val = p.z; }  // Z越界
-
-    if (kind >= 0)                          // 有违规才记录
-        violations[nViolations++] = (Violation){ i, wp, kind, val };
-}
-
-/* ================================================================
  *  InAirspace() - 判断一个三维点是否在允许的空域内
  *
  *  空域范围：X/Z 在 0~GROUND（40米），Y 在 0.5~30 米。
@@ -144,28 +120,17 @@ void SetAlert(const char* fmt, ...) {
 }
 
 /* ================================================================
- *  RunSafetyCheck() - 运行完整安全检测
+ *  RunSafetyCheck() - 运行碰撞安全检测
  *
  *  流程：
  *    1. 清空上次的结果
- *    2. 越界/高度检测：遍历每架的起点和所有路径点
- *    3. 碰撞检测：时间同步模拟飞行，两两找最小间距
- *    4. 设置已检测标记，弹出汇总消息
+ *    2. 碰撞检测：时间同步模拟飞行，两两找最小间距
+ *    3. 设置已检测标记，弹出汇总消息
  * ================================================================ */
 void RunSafetyCheck(void) {
     nCollisions = 0;                        // 清空碰撞结果
-    nViolations = 0;                        // 清空越界结果
 
-    /* ---- 1. 越界/高度检测 ---- */
-    for (int i = 0; i < N; i++) {
-        Drone* d = &D[i];
-        if (!d->act) continue;              // 跳过不存在的
-        CheckPt(i, -1, d->start);           // 检查起点（wp = -1）
-        for (int w = 0; w < d->wc; w++)
-            CheckPt(i, w, d->wp[w].p);      // 检查每个路径点
-    }
-
-    /* ---- 2. 碰撞检测 ---- */
+    /* ---- 碰撞检测 ---- */
     /* 找到最长路径长度，作为模拟的总里程 */
     float maxS = 0;
     for (int i = 0; i < N; i++)
@@ -206,20 +171,18 @@ void RunSafetyCheck(void) {
 
     safetyChecked = true;                   // 标记已检测
 
-    Msg("Safety: %d collision(s), %d violation(s)", nCollisions, nViolations);
+    Msg("Safety: %d collision(s)", nCollisions);
 }
 
 /* ================================================================
- *  SafetyWarn() - 判断某架无人机是否被标记为有问题
+ *  SafetyWarn() - 判断某架无人机是否被标记为有碰撞风险
  *
- *  在碰撞列表或越界列表里出现过的无人机都算"有问题"。
- *  返回 1=有问题, 0=正常。用于 3D 场景红色高亮。
+ *  在碰撞列表里出现过的无人机都算"有风险"。
+ *  返回 1=有风险, 0=正常。用于 3D 场景红色高亮。
  * ================================================================ */
 int SafetyWarn(int i) {
     for (int k = 0; k < nCollisions; k++)
         if (collisions[k].a == i || collisions[k].b == i) return 1;
-    for (int k = 0; k < nViolations; k++)
-        if (violations[k].drone == i) return 1;
     return 0;
 }
 

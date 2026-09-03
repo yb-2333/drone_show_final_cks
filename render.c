@@ -6,7 +6,7 @@
 #include "render.h"     // 自己的头文件
 #include "common.h"     // 全局变量：Cam, GROUND, N, D, PW, Gr, Rd, Gn, Bl
 #include "drone.h"      // DD() 绘制无人机函数
-#include "safety.h"     // SafetyWarn, violations, nViolations（安全检测高亮）
+#include "safety.h"     // SafetyWarn（安全检测高亮）
 
 /* ================================================================
  *  Draw3D() - 绘制整个3D场景
@@ -48,19 +48,9 @@ void Draw3D(void) {
     /* ---- 安全检测高亮 ---- */
     for (int i = 0; i < N; i++) {
         if (!D[i].act) continue;            // 跳过不存在的
-        if (SafetyWarn(i))                  // 被检测标记为有问题的无人机
+        if (SafetyWarn(i))                  // 有碰撞风险的无人机
             DrawCircle3D((Vector3){D[i].pos.x, D[i].pos.y, D[i].pos.z},
                          DR * 2.5f, (Vector3){0, 1, 0}, 0, Rd);  // 红色醒目环
-    }
-
-    /* 越界的路径点用红色小球标出 */
-    for (int k = 0; k < nViolations; k++) {
-        Violation* v = &violations[k];
-        if (v->drone >= N) continue;        // 无人机可能已被删除，跳过
-        if (v->wp >= 0 && v->wp < D[v->drone].wc) {
-            Pt p = D[v->drone].wp[v->wp].p;
-            DrawSphere((Vector3){p.x, p.y, p.z}, DR * 0.8f, Rd);
-        }
     }
 
     EndMode3D();                            // 退出3D模式
