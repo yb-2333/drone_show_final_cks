@@ -46,6 +46,8 @@ int SaveTraj(const char* path) {
     }
 
     fclose(f);
+    printf("Saved %d drone(s) to %s\n", N, path);   // 终端提示：已保存
+    fflush(stdout);
     Msg("Saved %d drone(s) to %s", N, path);
     return 1;
 }
@@ -136,6 +138,18 @@ int LoadTraj(const char* path) {
     nCollisions  = 0;                       // 清空旧的安全检测结果
     nViolations  = 0;
     safetyChecked = false;
+
+    /* 终端提示：已读取，并完整列出每架的起点、灯光和所有路径点 */
+    printf("Loaded %d drone(s) from %s\n", count, path);
+    for (int i = 0; i < count; i++) {
+        Drone* d = &D[i];
+        printf("  %s start=(%.1f, %.1f, %.1f) light=%d waypoints=%d\n",
+               d->name, d->start.x, d->start.y, d->start.z, d->light, d->wc);
+        for (int w = 0; w < d->wc; w++)     // 逐个打印路径点坐标
+            printf("    -> (%.1f, %.1f, %.1f)\n",
+                   d->wp[w].p.x, d->wp[w].p.y, d->wp[w].p.z);
+    }
+    fflush(stdout);
 
     Msg("Loaded %d drone(s) from %s", count, path);
     return 1;

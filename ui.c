@@ -12,6 +12,7 @@
 #include "utils.h"      // Btn, Txt, Sep, Sld, In
 #include "drone.h"      // MakeDrone, DelDrone, Rst
 #include "safety.h"     // RunSafetyCheck, collisions, violations（安全检测UI）
+#include "fileio.h"     // SaveTraj, LoadTraj, TRAJ_FILENAME（轨迹文件存取）
 
 /* ---- UI面板的坐标宏（只在 ui.c 内使用） ---- */
 /* PX = 面板左边界X, X = 内容区起始X, W = 内容区宽度 */
@@ -303,6 +304,20 @@ void DrawUI(void) {
         DrawRectangle(x, y, w, 10, (Color){40, 40, 55, 255});            // 背景
         DrawRectangle(x, y, (int)(w * prog), 10, Ye);                    // 前景
         DrawText(TextFormat("%.0f%%", prog * 100), x, y + 14, 12, Gr);   // 百分比
+        y += 26;
+
+        /* ---- 轨迹文件存取（数据回放） ---- */
+        Sep(x, y, w);
+        y += 6;
+
+        DrawText("Trajectory:", x, y, 12, Gr);
+        y += 14;
+
+        if (Btn((Rectangle){x, (float)y, w / 2 - 3, 22}, "Save", Gn))
+            SaveTraj(TRAJ_FILENAME);                // 保存当前轨迹到文件
+
+        if (Btn((Rectangle){x + w / 2 + 3, (float)y, w / 2 - 3, 22}, "Load", Bl))
+            LoadTraj(TRAJ_FILENAME);                // 从文件加载轨迹（覆盖当前）
         y += 26;
 
         /* 快捷键提示 */

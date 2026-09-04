@@ -3,13 +3,12 @@
  *
  *  包含两类检测：
  *    1. 越界/高度检测 —— 检查每架无人机的起点和路径点是否在空域内
- *    2. 碰撞检测     —— 时间同步模拟整场飞行，找任意两架的最小间距
+ *    2. 碰撞检测     —— 检查两架无人机是否"终点重合"（飞往同一终点）
  *
  *  【给初学者】
- *   碰撞检测的核心思路：回放时所有无人机以相同速度同时起飞，
- *   所以可以用"飞行距离 s"来统一表示时间——走过相同距离 = 同一时刻。
- *   我们让 s 从 0 增长到最长路径长度，每一步算出每架无人机的位置，
- *   再两两比较距离，记录全程最小距离。
+ *   碰撞检测的思路很简单：只要两架无人机最终的"终点"（最后一个路径点）
+ *   是同一个位置，就说明它们会撞在一起。起点重合（从同一处起飞）和
+ *   途中路径交叉都不算危险，因此不用复杂的飞行模拟。
  ******************************************************************************/
 #include "safety.h"     // 自己的头文件
 #include "common.h"     // 全局变量：D, N, spd, GROUND 等
@@ -23,8 +22,6 @@
 #define AIR_Z_MAX   GROUND  // 空域 Z 上界
 #define AIR_Y_MIN   0.5f    // 最低飞行高度（米）
 #define AIR_Y_MAX   30.0f   // 最高飞行高度（米）
-#define SIM_STEP    0.25f   // 碰撞模拟的采样步长（米），越小越精确
-#define MAX_STEPS   4000    // 采样步数上限（防止路径过长导致卡顿）
 
 /* ============================ 结果全局变量定义 ============================ */
 Collision collisions[MAX_COLLISIONS];   // 碰撞风险列表
@@ -47,52 +44,17 @@ static float Dist(Pt a, Pt b) {
 }
 
 /* ================================================================
- *  PathLen() - 计算第 i 架无人机的总路径长度
+ *  FinalPos() - 获取第 i 架无人机的终点（最后一个路径点）
  *
- *  路径 = 起点 → 第1个路径点 → 第2个路径点 → ...，逐段累加。
+ *  只有"飞出去"（wc>0）的无人机才有终点；没有路径点的无人机只是
+ *  停在起点，不算有终点。用 out 指针带回终点坐标。
+ *  返回 1=有终点, 0=没有终点（无路径）。
  * ================================================================ */
-static float PathLen(int i) {
+static int FinalPos(int i, Pt* out) {
     Drone* d = &D[i];
-    float len = 0;                          // 累计长度
-    Pt cur = d->start;                      // 从起点开始
-
-    for (int w = 0; w < d->wc; w++) {
-        Pt next = d->wp[w].p;               // 下一个路径点
-        len += Dist(cur, next);             // 累加这一段
-        cur = next;
-    }
-    return len;
-}
-
-/* ================================================================
- *  PosAt() - 返回第 i 架无人机在"飞行距离 s"处的位置
- *
- *  参数:
- *    s - 从起点算起的飞行距离（米）
- *
- *  原理：沿路径逐段推进，找到 s 落在哪一段上，然后按比例插值。
- *  如果 s 超过总路径长度，说明已飞完，停在最后一个路径点。
- * ================================================================ */
-static Pt PosAt(int i, float s) {
-    Drone* d = &D[i];
-    Pt cur = d->start;                      // 当前段起点
-
-    for (int w = 0; w < d->wc; w++) {
-        Pt next = d->wp[w].p;               // 当前段终点
-        float seg = Dist(cur, next);        // 这一段长度
-
-        if (s <= seg) {                     // s 落在这段上
-            if (seg < 1e-4f) return next;   // 零长度段保护（避免除0）
-            float t = s / seg;              // 段内比例 0~1
-            /* 线性插值：起点 + 方向分量 × 比例 */
-            return (Pt){ cur.x + (next.x - cur.x) * t,
-                         cur.y + (next.y - cur.y) * t,
-                         cur.z + (next.z - cur.z) * t };
-        }
-        s -= seg;                           // 减去这段，进入下一段
-        cur = next;
-    }
-    return cur;                             // 全部走完，停在最后
+    if (d->wc <= 0) return 0;               // 没有路径点 → 没有终点
+    *out = d->wp[d->wc - 1].p;              // 最后一个路径点 = 终点
+    return 1;
 }
 
 /* ================================================================
@@ -149,7 +111,7 @@ void SetAlert(const char* fmt, ...) {
  *  流程：
  *    1. 清空上次的结果
  *    2. 越界/高度检测：遍历每架的起点和所有路径点
- *    3. 碰撞检测：时间同步模拟飞行，两两找最小间距
+ *    3. 碰撞检测：检查两两终点是否重合
  *    4. 设置已检测标记，弹出汇总消息
  * ================================================================ */
 void RunSafetyCheck(void) {
@@ -165,42 +127,21 @@ void RunSafetyCheck(void) {
             CheckPt(i, w, d->wp[w].p);      // 检查每个路径点
     }
 
-    /* ---- 2. 碰撞检测 ---- */
-    /* 找到最长路径长度，作为模拟的总里程 */
-    float maxS = 0;
-    for (int i = 0; i < N; i++)
-        if (D[i].act) {
-            float L = PathLen(i);
-            if (L > maxS) maxS = L;
-        }
-
-    /* 参考速度 = spd × 3（与 drone.c 的 Upd 一致），用于把里程换算成时间 */
-    float vref = spd * 3.0f;
-    if (vref < 0.01f) vref = 0.01f;         // 防止除0
-
-    /* 对每一对无人机，模拟全程，记录它们的最小间距 */
+    /* ---- 2. 碰撞检测（终点重合） ---- */
     for (int i = 0; i < N; i++) {
         if (!D[i].act) continue;
+        Pt fi;
+        if (!FinalPos(i, &fi)) continue;    // 没有终点（无路径）→跳过
+
         for (int j = i + 1; j < N; j++) {
             if (!D[j].act) continue;
+            Pt fj;
+            if (!FinalPos(j, &fj)) continue;
 
-            float minDist = 1e9f;           // 初始化为很大，表示"还没找到"
-            float minS = 0;                 // 最小距离发生时走过的里程
-            int steps = 0;
-
-            /* s 从 0 增长到 maxS，每步算一次两机距离 */
-            for (float s = 0; s <= maxS && steps < MAX_STEPS; s += SIM_STEP, steps++) {
-                float d = Dist(PosAt(i, s), PosAt(j, s));
-                if (d < minDist) {          // 找到更近的距离
-                    minDist = d;
-                    minS = s;
-                }
-            }
-
-            /* 全程最小距离 < 安全间距 → 记录为碰撞风险 */
-            if (minDist < SAFE_DIST && nCollisions < MAX_COLLISIONS)
-                collisions[nCollisions++] =
-                    (Collision){ i, j, minS / vref, minDist };
+            /* 两个终点距离 < 安全间距 → 记为碰撞风险 */
+            float d = Dist(fi, fj);
+            if (d < SAFE_DIST && nCollisions < MAX_COLLISIONS)
+                collisions[nCollisions++] = (Collision){ i, j, 0, d };
         }
     }
 
@@ -249,15 +190,17 @@ int LiveCheck(void) {
         }
     }
 
-    /* ---- 2. 碰撞检测（当前两两距离） ---- */
+    /* ---- 2. 碰撞检测（终点重合） ---- */
+    /* 只有两架都飞到终点（fin）且都有路径（wc>0）时才检查：
+     * 起点重合、途中交叉都不算危险，只有"终点一样"才告警。 */
     for (int i = 0; i < N; i++) {
-        if (!D[i].act) continue;
+        if (!D[i].act || !D[i].fin || D[i].wc <= 0) continue;
         for (int j = i + 1; j < N; j++) {
-            if (!D[j].act) continue;
+            if (!D[j].act || !D[j].fin || D[j].wc <= 0) continue;
             float d = Dist(D[i].pos, D[j].pos);
             if (d < SAFE_DIST) {
                 snprintf(alertMsg, sizeof(alertMsg),
-                         "%s too close to %s (%.2fm)",
+                         "%s and %s share same destination (%.2fm)",
                          D[i].name, D[j].name, d);
                 alertActive = true;
                 return 1;

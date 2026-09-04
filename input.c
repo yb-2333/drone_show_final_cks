@@ -106,6 +106,40 @@ void Keys(void) {
 }
 
 /* ================================================================
+ *  ShowStatus() - 终端实时状态输出（回放时）
+ *
+ *  这是"实时模拟"的文字版：在 Show 模式播放时，把每架无人机的
+ *  当前位置和灯光模式打印到终端（控制台），不依赖3D窗口也能看到状态。
+ *
+ *  用静态变量 printT 做节流（每0.5秒打印一次），避免刷屏；
+ *  fflush(stdout) 保证文字立刻显示（否则可能被输出缓冲卡住）。
+ * ================================================================ */
+static float printT = 0;                        // 打印计时器（秒）
+
+static void ShowStatus(float dt) {
+    printT += dt;                               // 累计经过的时间
+    if (printT < 0.5f) return;                  // 还没到间隔→本帧不打印
+    printT = 0;                                 // 重置计时器
+
+    printf("\n--- Live Show: %.0f%% ---\n", prog * 100);   // 进度标题
+
+    for (int i = 0; i < N; i++) {
+        Drone* d = &D[i];
+        if (!d->act) continue;                  // 跳过已删除的
+
+        /* 灯光模式 → 可读文字 */
+        const char* lm =
+            d->light == L_OFF   ? "OFF"   :
+            d->light == L_BLINK ? "BLINK" : "ON";
+
+        /* 每行：名字 + 位置 + 灯光 */
+        printf("%-6s pos=(%6.1f, %5.1f, %6.1f)  light=%-5s\n",
+               d->name, d->pos.x, d->pos.y, d->pos.z, lm);
+    }
+    fflush(stdout);                             // 立即输出，不等待缓冲
+}
+
+/* ================================================================
  *  Update() - 每帧更新逻辑
  *
  *  调用顺序：在 main() 主循环中先调 Keys()，再调 Update()。
@@ -144,5 +178,7 @@ void Update(float dt) {
         /* 实时安全检测：播放中若越界或碰撞，暂停并弹窗 */
         if (play && !pause && LiveCheck())
             pause = true;
+        /* 终端实时状态输出：动态显示每架无人机的位置和灯光 */
+        if (play && !pause) ShowStatus(dt);
     }
 }

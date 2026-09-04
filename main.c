@@ -109,14 +109,15 @@ int main(void) {
         DrawUI();                               // 画UI面板
 
         /* ---- 左下角帮助面板 ---- */
-        int hy = GetScreenHeight() - 100;
-        DrawRectangle(6, hy, 210, 96, Fade(BLACK, 0.7f));      // 半透明背景
+        int hy = GetScreenHeight() - 114;                       // 底部上移，多留一行空间
+        DrawRectangle(6, hy, 210, 110, Fade(BLACK, 0.7f));      // 半透明背景
 
         DrawText("Help", 12, hy + 4, 13, Bl);
         DrawText("F1=Setup F2=Edit F3=Show", 12, hy + 20, 11, Gr);
         DrawText("Tab=Next  1/2/3=Light",    12, hy + 34, 11, Gr);
         DrawText("Click 3D=Select  F=Focus", 12, hy + 48, 11, Gr);
         DrawText("Scroll=Zoom  R-Drag=Rotate", 12, hy + 62, 11, Gr);
+        DrawText("Ctrl+S=Save  Ctrl+L=Load", 12, hy + 76, 11, Gr);
 
         /* 状态栏：当前模式 + 无人机数量 */
         DrawText(TextFormat("Mode:%s  Drones:%d",
@@ -124,7 +125,7 @@ int main(void) {
             M == M_SETUP ? "Setup" :
             M == M_EDIT  ? "Edit"  : "Show",
             N),
-            12, hy + 78, 11, Ye);
+            12, hy + 92, 11, Ye);
 
         /* 状态消息（计时器>0时显示） */
         if (mt > 0)
