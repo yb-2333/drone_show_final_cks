@@ -24,8 +24,9 @@
 raylib 6.0 库已随项目附带在 `raylib/` 目录（头文件 + 导入库），`raylib.dll` 在项目根目录，无需额外下载。
 
 ```bash
-gcc common.c utils.c drone.c render.c ui.c input.c safety.c \
-    trajectory.c undo.c json.c stats.c test.c main.c \
+gcc common.c utils.c drone.c render.c ui.c ui_setup.c ui_edit.c ui_show.c \
+    input.c safety.c trajectory.c undo.c \
+    json.c json_parse.c json_emit.c json_store.c stats.c test.c main.c \
     -o drone_light_show.exe \
     -Iraylib/include -Lraylib/lib \
     -lraylibdll -lopengl32 -lgdi32 -lwinmm
@@ -80,10 +81,11 @@ gcc common.c utils.c drone.c render.c ui.c input.c safety.c \
 ## 项目文件
 
 - `main.c` -- 程序入口
-- `common.c` / `drone.c` / `render.c` / `ui.c` / `input.c` / `utils.c` / `safety.c` -- 各模块实现（对应同名 `.h` 头文件）
+- `common.c` / `drone.c` / `render.c` / `input.c` / `utils.c` / `safety.c` -- 各模块实现（对应同名 `.h` 头文件）
+- `ui.c` + `ui_setup.c` / `ui_edit.c` / `ui_show.c` -- UI：框架 + 三种模式面板（Setup/Edit/Show）
 - `trajectory.c` -- 轨迹数学（缓动、Catmull-Rom 样条、位置采样）
 - `undo.c` -- 撤销/重做（快照栈）
-- `json.c` -- JSON 解析/序列化 + 场景存取
+- `json.c` + `json_parse.c` / `json_emit.c` / `json_store.c` -- JSON 库与场景存取（内部结构见 `json_internal.h`）
 - `stats.c` -- 演出统计（数量、路径长、时长、包围盒）
 - `test.c` -- 自检（轨迹/缓动/样条/JSON 断言测试）
 - `raylib/` -- raylib 6.0 头文件与导入库

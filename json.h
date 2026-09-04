@@ -6,7 +6,7 @@
  *    SaveShow() - 把当前所有无人机保存成 JSON 文件
  *    LoadShow() - 从 JSON 文件还原无人机
  *
- *  JVal 是不透明类型（内部结构只在 json.c 中定义），
+ *  JVal 是不透明类型（内部结构定义见 json_internal.h），
  *  外部通过 JsonParse / JsonGet / JsonNum / JsonStr / JsonEmit 访问。
  ******************************************************************************/
 #ifndef JSON_H
