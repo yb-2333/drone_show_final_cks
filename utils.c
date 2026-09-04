@@ -219,3 +219,48 @@ float Sld(Rectangle r, float v, float lo, float hi, const char* f) {
 
     return v;                               // 没拖动，返回原值
 }
+
+/* ================================================================
+ *  Hsv2Rgb() - HSV 色相转 RGB 颜色
+ *
+ *  HSV（色相/饱和度/明度）比 RGB 更适合表达"颜色循环"，
+ *  因为色相 h 从 0 变到 1 就能绕整个色环一圈（红→绿→蓝→红）。
+ *  用于彩虹灯光效果：让 h 随时间增长，颜色就不断循环变化。
+ *
+ *  参数:
+ *    h - 色相（0~1，超出的部分会回绕）
+ *    s - 饱和度（0~1）
+ *    v - 明度（0~1）
+ * ================================================================ */
+Color Hsv2Rgb(float h, float s, float v) {
+    float r = 0, g = 0, b = 0;
+
+    if (s <= 0) {                           // 无饱和度 → 灰色
+        r = g = b = v;
+    } else {
+        if (h >= 1.0f) h -= (int)h;         // 色相回绕到 0~1
+        if (h < 0.0f)  h += 1.0f;
+        h *= 6.0f;                          // 色相 → 六段扇区
+        int   i = (int)h;                   // 落在哪个扇区
+        float f = h - i;                    // 扇区内的小数部分
+        float p = v * (1.0f - s);
+        float q = v * (1.0f - s * f);
+        float t = v * (1.0f - s * (1.0f - f));
+
+        switch (i % 6) {
+            case 0: r = v; g = t; b = p; break;
+            case 1: r = q; g = v; b = p; break;
+            case 2: r = p; g = v; b = t; break;
+            case 3: r = p; g = q; b = v; break;
+            case 4: r = t; g = p; b = v; break;
+            case 5: r = v; g = p; b = q; break;
+        }
+    }
+
+    return (Color){
+        (unsigned char)(r * 255.0f),
+        (unsigned char)(g * 255.0f),
+        (unsigned char)(b * 255.0f),
+        255
+    };
+}

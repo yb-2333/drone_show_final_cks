@@ -41,6 +41,32 @@ void Draw3D(void) {
     DrawLine3D((Vector3){0, 0, 0}, (Vector3){0, S, 0}, Gn);  // Y轴=绿色（高度）
     DrawLine3D((Vector3){0, 0, 0}, (Vector3){0, 0, S}, Bl);  // Z轴=蓝色
 
+    /* ---- 空域边界框（半透明，展示允许飞行的范围） ----
+     * 空域 = X/Z 0~40 米，Y 0.5~30 米。用 12 条边画出一个长方体，
+     * 让用户一眼看出无人机能飞的空间有多大。 */
+    {
+        float y0 = 0.5f, y1 = 30.0f;            // 最低/最高飞行高度
+        Color bc = Fade(Ye, 0.35f);             // 边界框颜色（淡黄）
+
+        /* 底面四边（y0 高度） */
+        DrawLine3D((Vector3){0, y0, 0}, (Vector3){S, y0, 0}, bc);
+        DrawLine3D((Vector3){S, y0, 0}, (Vector3){S, y0, S}, bc);
+        DrawLine3D((Vector3){S, y0, S}, (Vector3){0, y0, S}, bc);
+        DrawLine3D((Vector3){0, y0, S}, (Vector3){0, y0, 0}, bc);
+
+        /* 顶面四边（y1 高度） */
+        DrawLine3D((Vector3){0, y1, 0}, (Vector3){S, y1, 0}, bc);
+        DrawLine3D((Vector3){S, y1, 0}, (Vector3){S, y1, S}, bc);
+        DrawLine3D((Vector3){S, y1, S}, (Vector3){0, y1, S}, bc);
+        DrawLine3D((Vector3){0, y1, S}, (Vector3){0, y1, 0}, bc);
+
+        /* 四条竖边（连接底面与顶面的四个角） */
+        DrawLine3D((Vector3){0, y0, 0}, (Vector3){0, y1, 0}, bc);
+        DrawLine3D((Vector3){S, y0, 0}, (Vector3){S, y1, 0}, bc);
+        DrawLine3D((Vector3){S, y0, S}, (Vector3){S, y1, S}, bc);
+        DrawLine3D((Vector3){0, y0, S}, (Vector3){0, y1, S}, bc);
+    }
+
     /* ---- 绘制所有无人机 ---- */
     for (int i = 0; i < N; i++)
         DD(&D[i]);                          // 委托 drone.c 的 DD 函数
@@ -101,4 +127,31 @@ int Pick(void) {
     }
 
     return h;                               // 返回索引或-1
+}
+
+/* ================================================================
+ *  MouseGround() - 鼠标射线与水平面求交
+ *
+ *  从相机穿过鼠标指针发射一条射线，求它与"高度 = y"的水平面的交点。
+ *  返回该交点的三维坐标，用于鼠标拖拽移动无人机（在高度不变的平面上）。
+ *
+ *  原理：射线 = 起点 + 方向 × t，令结果的 Y 分量等于目标高度 y，
+ *        反解出 t，再代回得到完整的 (x, y, z)。
+ * ================================================================ */
+Pt MouseGround(float y) {
+    Ray r = GetMouseRay(GetMousePosition(), Cam);   // 鼠标射线
+
+    /* 射线方向近乎水平（与平面平行）时无交点，返回平面中心避免除零 */
+    if (fabsf(r.direction.y) < 1e-6f)
+        return (Pt){GROUND / 2, y, GROUND / 2};
+
+    float t = (y - r.position.y) / r.direction.y;   // 反解参数 t
+    if (t < 0) t = 0;                               // 交点应在射线前方
+
+    Vector3 p = {                                    // 代入求交点
+        r.position.x + r.direction.x * t,
+        y,
+        r.position.z + r.direction.z * t
+    };
+    return (Pt){p.x, p.y, p.z};
 }

@@ -16,6 +16,12 @@ void MakeDrone(void);
 /* 删除第 i 架无人机（后面的元素前移覆盖） */
 void DelDrone(int i);
 
+/* 复制第 i 架无人机（含航点），新机沿 X 轴偏移 1 米 */
+void DuplicateDrone(int i);
+
+/* 把第 i 架无人机的路径沿 X 轴中线镜像（制作对称编队） */
+void MirrorPath(int i);
+
 /* 根据无人机的灯光模式和选中状态，计算它在3D场景中的显示颜色 */
 Color RC(Drone* d);
 
@@ -29,5 +35,16 @@ void Rst(void);
 
 /* 每帧更新回放动画：让无人机沿着路径点飞行 */
 void Upd(float dt);
+
+/* ==================== 编队变换 ==================== */
+
+/* 把所有无人机的起始位置重新排列成圆形编队 */
+void FormCircle(void);
+
+/* 把所有无人机的起始位置重新排列成直线编队 */
+void FormLine(void);
+
+/* 把所有无人机的起始位置重新排列成网格编队 */
+void FormGrid(void);
 
 #endif  /* DRONE_H */

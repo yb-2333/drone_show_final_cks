@@ -14,6 +14,7 @@
 #include "safety.h"     // 自己的头文件
 #include "common.h"     // 全局变量：D, N, spd, GROUND 等
 #include "utils.h"      // Msg() 函数
+#include "trajectory.h" // Dist3, PathLen, DronePosAt（与回放一致的插值）
 
 /* ============================ 安全参数常量 ============================ */
 #define SAFE_DIST   0.8f    // 安全间距（米）：两架距离小于它就有碰撞风险
@@ -35,63 +36,12 @@ bool      alertActive = false;          // 是否正在显示实时告警弹窗
 char      alertMsg[256] = "";           // 实时告警弹窗文字
 
 /* ================================================================
- *  Dist() - 计算两个三维点之间的欧几里得距离
+ *  距离 / 路径长度 / 位置采样 已统一搬到 trajectory.c：
+ *    Dist3()      —— 三维距离
+ *    PathLen()    —— 路径总长度
+ *    DronePosAt() —— 位置采样（直线 / 缓动 / 样条）
+ *  这里直接引用它们，保证安全检测与回放使用完全相同的插值。
  * ================================================================ */
-static float Dist(Pt a, Pt b) {
-    float dx = a.x - b.x;                       // X 方向差
-    float dy = a.y - b.y;                       // Y 方向差
-    float dz = a.z - b.z;                       // Z 方向差
-    return sqrtf(dx * dx + dy * dy + dz * dz);  // 三维勾股定理
-}
-
-/* ================================================================
- *  PathLen() - 计算第 i 架无人机的总路径长度
- *
- *  路径 = 起点 → 第1个路径点 → 第2个路径点 → ...，逐段累加。
- * ================================================================ */
-static float PathLen(int i) {
-    Drone* d = &D[i];
-    float len = 0;                          // 累计长度
-    Pt cur = d->start;                      // 从起点开始
-
-    for (int w = 0; w < d->wc; w++) {
-        Pt next = d->wp[w].p;               // 下一个路径点
-        len += Dist(cur, next);             // 累加这一段
-        cur = next;
-    }
-    return len;
-}
-
-/* ================================================================
- *  PosAt() - 返回第 i 架无人机在"飞行距离 s"处的位置
- *
- *  参数:
- *    s - 从起点算起的飞行距离（米）
- *
- *  原理：沿路径逐段推进，找到 s 落在哪一段上，然后按比例插值。
- *  如果 s 超过总路径长度，说明已飞完，停在最后一个路径点。
- * ================================================================ */
-static Pt PosAt(int i, float s) {
-    Drone* d = &D[i];
-    Pt cur = d->start;                      // 当前段起点
-
-    for (int w = 0; w < d->wc; w++) {
-        Pt next = d->wp[w].p;               // 当前段终点
-        float seg = Dist(cur, next);        // 这一段长度
-
-        if (s <= seg) {                     // s 落在这段上
-            if (seg < 1e-4f) return next;   // 零长度段保护（避免除0）
-            float t = s / seg;              // 段内比例 0~1
-            /* 线性插值：起点 + 方向分量 × 比例 */
-            return (Pt){ cur.x + (next.x - cur.x) * t,
-                         cur.y + (next.y - cur.y) * t,
-                         cur.z + (next.z - cur.z) * t };
-        }
-        s -= seg;                           // 减去这段，进入下一段
-        cur = next;
-    }
-    return cur;                             // 全部走完，停在最后
-}
 
 /* ================================================================
  *  InAirspace() - 判断一个三维点是否在允许的空域内
@@ -135,7 +85,7 @@ void RunSafetyCheck(void) {
     float maxS = 0;
     for (int i = 0; i < N; i++)
         if (D[i].act) {
-            float L = PathLen(i);
+            float L = PathLen(&D[i]);
             if (L > maxS) maxS = L;
         }
 
@@ -153,9 +103,10 @@ void RunSafetyCheck(void) {
             float minS = 0;                 // 最小距离发生时走过的里程
             int steps = 0;
 
-            /* s 从 0 增长到 maxS，每步算一次两机距离 */
+            /* s 从 0 增长到 maxS，每步用 DronePosAt 采样两机位置算距离 */
             for (float s = 0; s <= maxS && steps < MAX_STEPS; s += SIM_STEP, steps++) {
-                float d = Dist(PosAt(i, s), PosAt(j, s));
+                float d = Dist3(DronePosAt(&D[i], s, pathMode),
+                                DronePosAt(&D[j], s, pathMode));
                 if (d < minDist) {          // 找到更近的距离
                     minDist = d;
                     minS = s;
@@ -217,7 +168,7 @@ int LiveCheck(void) {
         if (!D[i].act) continue;
         for (int j = i + 1; j < N; j++) {
             if (!D[j].act) continue;
-            float d = Dist(D[i].pos, D[j].pos);
+            float d = Dist3(D[i].pos, D[j].pos);
             if (d < SAFE_DIST) {
                 snprintf(alertMsg, sizeof(alertMsg),
                          "%s too close to %s (%.2fm)",

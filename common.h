@@ -34,10 +34,20 @@
 
 /* 灯光模式枚举 */
 typedef enum {
-    L_OFF   = 0,    // 灯灭
+    L_OFF     = 0,  // 灯灭
     L_ON,           // 常亮（自动=1）
-    L_BLINK         // 闪烁（自动=2）
+    L_BLINK,        // 闪烁（自动=2）
+    L_PULSE,        // 呼吸：亮度缓慢起伏（自动=3）
+    L_CHASE,        // 追逐：按序号相位依次亮（自动=4）
+    L_RAINBOW       // 彩虹：色相随时间循环（自动=5）
 } Light;
+
+/* 轨迹平滑模式枚举 */
+typedef enum {
+    PM_LINEAR = 0,  // 直线匀速（无平滑）
+    PM_EASED,       // 段内缓动（加速→减速）
+    PM_SPLINE       // Catmull-Rom 曲线
+} PathMode;
 
 /* 程序工作模式枚举 */
 typedef enum {
@@ -75,6 +85,9 @@ typedef struct {
     bool    fin;              // 是否已飞完所有路径
     bool    act;              // 是否激活（存在）
     bool    sel;              // 是否被选中
+    float   flown;            // 累计已飞行距离（米），平滑回放用
+    float   ph;               // 灯光效果相位（pulse/chase/rainbow 用）
+    float   espeed;           // 灯光效果速度倍率（默认 1.0）
 } Drone;
 
 /* ============================ 全局变量声明（extern） ============================ */
@@ -85,8 +98,8 @@ typedef struct {
  */
 
 /* 灯光颜色数组 */
-extern Color LC[3];             // 三种预设灯光颜色（红/绿/蓝）
-extern const char* LCN[3];      // 颜色名称字符串（"Red"/"Green"/"Blue"）
+extern Color LC[8];             // 八种预设灯光颜色
+extern const char* LCN[8];      // 颜色名称字符串
 
 /* 无人机数组和相关状态 */
 extern Drone D[MAX_DRONES];     // 所有无人机
@@ -113,6 +126,7 @@ extern bool  play;              // 是否正在播放
 extern bool  pause;             // 是否暂停
 extern float spd;               // 播放速度（0.5x ~ 8x）
 extern float prog;              // 播放进度（0.0 ~ 1.0）
+extern int   pathMode;          // 轨迹平滑模式（PM_LINEAR/PM_EASED/PM_SPLINE）
 
 /* 消息系统 */
 extern char  msg[256];          // 状态消息文本

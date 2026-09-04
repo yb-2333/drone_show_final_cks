@@ -33,4 +33,8 @@ void Sep(int x, int y, int w);
 /* 绘制滑块控件，用户拖动滑块可调整数值 */
 float Sld(Rectangle r, float v, float lo, float hi, const char* f);
 
+/* ---- 颜色工具 ---- */
+/* HSV 色相转 RGB 颜色（h/s/v 都在 0~1 范围），用于彩虹效果 */
+Color Hsv2Rgb(float h, float s, float v);
+
 #endif  /* UTILS_H */
