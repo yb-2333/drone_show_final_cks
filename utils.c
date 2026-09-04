@@ -53,10 +53,10 @@ int In(Rectangle r) {
 int Btn(Rectangle r, const char* t, Color c) {
     DrawRectangleRec(r, c);                     // 画按钮背景填充矩形
     DrawRectangleLinesEx(r, 1, Br);             // 画边框线（1像素宽，深灰色）
-    int tw = MeasureText(t, 16);                // 测量文字宽度（字号16），用于居中计算
+    int tw = MeasureText(t, 18);                // 测量文字宽度（字号18），用于居中计算
     /* 水平居中：矩形中心X - 文字宽度的一半；垂直居中：矩形中心Y - 字号的一半 */
     DrawText(t, (int)(r.x + r.width / 2 - tw / 2),
-                (int)(r.y + r.height / 2 - 8), 16, Wh);
+                (int)(r.y + r.height / 2 - 9), 18, Wh);
     /* 鼠标在矩形内 并且 鼠标左键刚被按下 → 返回1（被点击） */
     return In(r) && IsMouseButtonPressed(MOUSE_LEFT_BUTTON);
 }

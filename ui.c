@@ -252,14 +252,14 @@ void DrawUI(void) {
             y += 15;
 
             /* 顶部工具：粘贴 + 清空 */
-            if (Btn((Rectangle){x, (float)y, w / 2 - 3, 18},
+            if (Btn((Rectangle){x, (float)y, w / 2 - 3, 20},
                     clipSet ? "Paste" : "(No copy)", clipSet ? Gn : Bt)) {
                 if (clipSet && d->wc < MAX_WP) { UndoPush(); d->wp[d->wc] = clip; d->wc++; }
             }
-            if (Btn((Rectangle){x + w / 2 + 3, (float)y, w / 2 - 3, 18}, "Clear All", Rd)) {
+            if (Btn((Rectangle){x + w / 2 + 3, (float)y, w / 2 - 3, 20}, "Clear All", Rd)) {
                 if (d->wc > 0) { UndoPush(); d->wc = 0; }
             }
-            y += 22;
+            y += 24;
 
             /* 每个航点一行：坐标 + 上移/下移/复制/删除 */
             for (int i = 0; i < d->wc && i < 6; i++) {
@@ -268,23 +268,23 @@ void DrawUI(void) {
                     x + 2, y + 2, 11, Wh);
 
                 float bx = x + w - 78;                  // 右侧按钮区起点
-                if (Btn((Rectangle){bx,      (float)y, 18, 15}, "^", i > 0 ? Gn : Bt)) {
+                if (Btn((Rectangle){bx,      (float)y, 18, 18}, "^", i > 0 ? Gn : Bt)) {
                     if (i > 0) { UndoPush(); Waypoint t = d->wp[i]; d->wp[i] = d->wp[i - 1]; d->wp[i - 1] = t; }
                 }
-                if (Btn((Rectangle){bx + 20, (float)y, 18, 15}, "v", i < d->wc - 1 ? Gn : Bt)) {
+                if (Btn((Rectangle){bx + 20, (float)y, 18, 18}, "v", i < d->wc - 1 ? Gn : Bt)) {
                     if (i < d->wc - 1) { UndoPush(); Waypoint t = d->wp[i]; d->wp[i] = d->wp[i + 1]; d->wp[i + 1] = t; }
                 }
-                if (Btn((Rectangle){bx + 40, (float)y, 18, 15}, "C", Bl)) {
+                if (Btn((Rectangle){bx + 40, (float)y, 18, 18}, "C", Bl)) {
                     clip = d->wp[i]; clipSet = true;    // 复制到剪贴板
                 }
-                if (Btn((Rectangle){bx + 60, (float)y, 18, 15}, "X", Rd)) {
+                if (Btn((Rectangle){bx + 60, (float)y, 18, 18}, "X", Rd)) {
                     UndoPush();
                     for (int j = i; j < d->wc - 1; j++)
                         d->wp[j] = d->wp[j + 1];
                     d->wc--;
                     break;                              // 数组已前移，跳出循环
                 }
-                y += 16;
+                y += 20;
             }
 
             if (d->wc > 6)
