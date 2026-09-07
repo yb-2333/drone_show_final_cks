@@ -14,17 +14,35 @@
  *    gcc common.c utils.c drone.c render.c ui.c input.c safety.c main.c \
  *        -o drone_light_show -lraylib -lopengl32 -lgdi32 -lwinmm
  ******************************************************************************/
+/* ================================================================
+ *  课程要求对照（无人机编队灯光秀模拟）
+ *
+ *  1. 编队初始化：设置数量/初始位置/高度  -> Setup 面板 + MakeDrone
+ *  2. 轨迹设计：关键坐标点自动移动、队形变换 -> Edit 航点 + FormTransition
+ *  3. 灯光控制：开关/颜色/闪烁          -> Edit 灯光+颜色 + RC()
+ *  4. 实时模拟：终端显示位置和灯光状态   -> PrintDrone()（选中/播放时打印）
+ *  5. 安全检测：越界/距离过近提示        -> InAirspace / CheckOverlap / LiveCheck
+ *  6. 数据回放：自动保存轨迹、重开自动加载重现 -> SaveShow/LoadShow(show.json) + Show 播放
+ * ================================================================ */
 #include "common.h"     // 全局变量：M, Cam, D, S, N, mt, msg, Bg, Bl, Gr, Gn, Ye, PW
 #include "utils.h"      // （main 不直接调用工具函数，但通过UI间接使用）
 #include "drone.h"      // Rst（Show模式重置）
 #include "render.h"     // Draw3D, Pick
 #include "ui.h"         // DrawUI, DrawStartScreen
 #include "input.h"      // Keys, Update
+#include "json.h"       // SaveShow/LoadShow（自动保存/加载轨迹）
 
 /* ================================================================
  *  main() - 程序入口函数
  * ================================================================ */
 int main(void) {
+    /* 关闭 stdout 缓冲，保证 printf 立即输出到终端（实时模拟用） */
+    setvbuf(stdout, NULL, _IONBF, 0);
+
+    /* 终端启动提示：说明操作流程，播放时这里会实时打印无人机状态 */
+    printf("=== Drone Light Show Simulator ===\n");
+    printf("Flow: Setup -> Edit -> Show   (F1/F2/F3)\n\n");
+
     /* ---- 窗口初始化 ---- */
     /* 设置窗口属性：4倍抗锯齿（画面更平滑）+ 可调整大小 */
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE);
@@ -46,6 +64,15 @@ int main(void) {
     float camYaw   = atan2f(off0.x, off0.z);    // 水平环绕角（绕Y轴，弧度）
     float camPitch = asinf(off0.y / camDist);   // 俯仰角（相对水平面，弧度）
 
+    /* ---- 自动加载上次保存的轨迹（数据回放：关掉重开能重现灯光秀） ----
+     * 第一次运行没有 show.json，LoadShow 失败就静默跳过，从头开始。 */
+    if (LoadShow("show.json")) {
+        Rst();                          // 恢复到起点，准备播放
+        printf("Loaded saved show: %d drones restored (F3 to replay)\n", N);
+    } else {
+        printf("No saved show yet - build a new one\n");
+    }
+
     /* ==================== 主循环 ==================== */
     /* WindowShouldClose() 在用户点关闭按钮时返回 true，循环结束 */
     while (!WindowShouldClose()) {
@@ -59,7 +86,7 @@ int main(void) {
             if (wh > 0) camDist *= 0.9f;        // 前滚→靠近（放大）
             else        camDist *= 1.1f;        // 后滚→远离（缩小）
             if (camDist < 5)  camDist = 5;      // 最近5米
-            if (camDist > 60) camDist = 60;     // 最远60米
+            if (camDist > 120) camDist = 120;   // 最远120米（初始约81米，保证能缩回原大小）
         }
 
         /* ---- 鼠标右键拖拽：环绕旋转视角 ---- */
@@ -99,6 +126,7 @@ int main(void) {
             S = pk;                             // 更新选中索引
             D[S].sel = 1;                       // 标记新选中
             if (M == M_SETUP) M = M_EDIT;       // Setup下点击→自动进Edit
+            PrintDrone(&D[S]);                  // 终端实时显示选中无人机
         }
 
         /* ---- 渲染 ---- */
@@ -115,7 +143,7 @@ int main(void) {
         DrawText("Help", 12, hy + 4, 13, Bl);
         DrawText("F1=Setup F2=Edit F3=Show", 12, hy + 20, 11, Gr);
         DrawText("Tab=Next  1/2/3=Light",    12, hy + 34, 11, Gr);
-        DrawText("Click 3D=Select  F=Focus", 12, hy + 48, 11, Gr);
+        DrawText("Click=Select  Enter=Move", 12, hy + 48, 11, Gr);
         DrawText("Scroll=Zoom  R-Drag=Rotate", 12, hy + 62, 11, Gr);
 
         /* 状态栏：当前模式 + 无人机数量 */
@@ -138,6 +166,10 @@ int main(void) {
 
         EndDrawing();                           // ④ 提交绘制帧
     }
+
+    /* ---- 退出前自动保存轨迹（下次打开自动恢复） ---- */
+    if (SaveShow("show.json"))
+        printf("Show saved - it will restore next launch\n");
 
     CloseWindow();                              // 关闭窗口，释放资源
     return 0;                                   // 正常退出

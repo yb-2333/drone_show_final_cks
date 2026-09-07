@@ -15,7 +15,6 @@ int SaveShow(const char* path) {
 
     ObjAdd(root, "version",  JNumVal(3.0));
     ObjAdd(root, "count",    JNumVal(N));
-    ObjAdd(root, "pathMode", JNumVal(pathMode));
 
     /* 每架无人机一个对象，放进 drones 数组 */
     JVal* drones = JNew(J_ARR);
@@ -27,6 +26,7 @@ int SaveShow(const char* path) {
         ObjAdd(jo, "color",  JNumVal(d->color));
         ObjAdd(jo, "light",  JNumVal(d->light));
         ObjAdd(jo, "espeed", JNumVal(d->espeed));
+        ObjAdd(jo, "pm",     JNumVal(d->pm));
 
         /* 起始位置 */
         JVal* st = JNew(J_OBJ);
@@ -79,7 +79,6 @@ int LoadShow(const char* path) {
     if (!root) return 0;
 
     int cnt  = (int)JsonNum(root, "count", 0);
-    pathMode = (int)JsonNum(root, "pathMode", PM_EASED);
     JVal* drones = JsonGet(root, "drones");
 
     int limit = (drones && drones->type == J_ARR) ? drones->count : 0;
@@ -102,6 +101,7 @@ int LoadShow(const char* path) {
         d->color  = (int)JsonNum(jo, "color", 0);
         d->light  = (int)JsonNum(jo, "light", L_ON);
         d->espeed = (float)JsonNum(jo, "espeed", 1.0);
+        d->pm     = (int)JsonNum(jo, "pm", PM_EASED);
 
         /* 起始位置 */
         JVal* st = JsonGet(jo, "start");
@@ -111,7 +111,7 @@ int LoadShow(const char* path) {
             d->start.z = (float)JsonNum(st, "z", 0);
         }
         d->pos = d->start;
-        d->h   = d->start.y;
+        d->h   = d->start.z;
 
         /* 航点 */
         JVal* wps = JsonGet(jo, "waypoints");

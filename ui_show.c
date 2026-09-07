@@ -2,7 +2,7 @@
  *  ui_show.c  -  Show 模式面板（播放控制）
  *
  *  提供回放的完整控制界面：
- *     - 速度滑块 / 轨迹平滑模式切换
+ *     - 速度滑块
  *     - 播放 / 暂停 / 停止 + 进度条
  *     - 演出统计面板（数量、路径长、时长、包围盒）
  *
@@ -34,15 +34,6 @@ void DrawShowPanel(int x, int w, int y) {
     /* 速度滑块 */
     spd = Sld((Rectangle){x, (float)y, (float)w, 22}, spd, 0.5f, 8, "Speed: %.1fx");
     y += 28;
-
-    /* 轨迹平滑模式选择 */
-    DrawText("Path:", x, y, 12, Gr);
-    y += 14;
-    float pmw = (w - 8) / 3.0f;
-    if (Btn((Rectangle){x, (float)y, pmw, 20}, "Linear", pathMode == PM_LINEAR ? Gn : Bt)) pathMode = PM_LINEAR;
-    if (Btn((Rectangle){x + pmw + 3, (float)y, pmw, 20}, "Eased", pathMode == PM_EASED ? Gn : Bt)) pathMode = PM_EASED;
-    if (Btn((Rectangle){x + 2 * (pmw + 3), (float)y, pmw, 20}, "Spline", pathMode == PM_SPLINE ? Gn : Bt)) pathMode = PM_SPLINE;
-    y += 24;
 
     /* 播放/暂停/停止按钮 */
     float pw = (w - 8) / 3.0f;
@@ -94,7 +85,7 @@ void DrawShowPanel(int x, int w, int y) {
         DrawText("Elapsed: --", x, y, 11, Gr);
     y += 13;
 
-    /* 包围盒：整场演出占用的空间范围（最小角 ~ 最大角） */
-    DrawText(TextFormat("Bounds X: %.0f..%.0f  Z: %.0f..%.0f",
-        st.bmin.x, st.bmax.x, st.bmin.z, st.bmax.z), x, y, 11, Gr);
+    /* 包围盒：整场演出占用的水平范围（X/Y 平面，Z 是高度） */
+    DrawText(TextFormat("Bounds X: %.0f..%.0f  Y: %.0f..%.0f",
+        st.bmin.x, st.bmax.x, st.bmin.y, st.bmax.y), x, y, 11, Gr);
 }

@@ -135,11 +135,12 @@ static Pt PathPoint(const Drone* d, int idx) {
  *  流程：
  *    1. 从起点开始逐段推进，找到 s 落在哪一段。
  *    2. 算出段内比例 u（0=段起点，1=段终点）。
- *    3. 按 mode 插值：
- *       PM_LINEAR/PM_EASED -> 直线 + 缓动
- *       PM_SPLINE         -> Catmull-Rom 曲线
+ *    3. 按 d->pm 插值：
+ *       PM_EASED  -> 直线 + 缓动
+ *       PM_SPLINE -> Catmull-Rom 曲线
  * ================================================================ */
-Pt DronePosAt(const Drone* d, float s, int mode) {
+Pt DronePosAt(const Drone* d, float s) {
+    int mode = d->pm;                   // 每架无人机自己的平滑模式
     /* 没有航点：无人机哪儿也不去，停在起点 */
     if (d->wc <= 0) return d->start;
 

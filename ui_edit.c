@@ -2,22 +2,19 @@
  *  ui_edit.c  -  Edit 模式面板（灯光 + 轨迹编辑）
  *
  *  提供编辑选中无人机的完整界面：
- *     - 灯光模式（6 种）
- *     - 航点添加 / 列表编辑（上移/下移/复制/删除/粘贴/清空）
- *     - 删除 / 复制 / 镜像无人机
- *     - 安全检测、撤销/重做、保存/加载、自检
+ *     - 灯光模式（6 种）（颜色在 Setup 界面改）
+ *     - 轨迹平滑模式（缓动 / 样条，每架独立）
+ *     - 航点添加 / 列表编辑（上移/下移/复制/粘贴/删除）
+ *     - 复制整架无人机
  *
  *  由 ui.c 的 DrawUI() 在 M_EDIT 模式下调用。
  ******************************************************************************/
 #include "ui.h"         // 自己的头文件
 #include "common.h"     // 所有全局变量
-#include "utils.h"      // Btn, Txt, Sep, Msg
-#include "drone.h"      // DelDrone, DuplicateDrone, MirrorPath, Rst
-#include "safety.h"     // RunSafetyCheck, InAirspace, SetAlert, collisions
-#include "undo.h"       // UndoPush, Undo, Redo, UndoCan, RedoCan
-#include "json.h"       // SaveShow, LoadShow
+#include "utils.h"      // Btn, Txt, Sep, Msg, In
+#include "drone.h"      // DuplicateDrone（复制整架无人机）
+#include "safety.h"     // InAirspace, SetAlert, CheckOverlap
 #include "trajectory.h" // PathLen（航点累计长度显示）
-#include "test.h"       // RunSelfTest（自检按钮）
 
 /* 航点剪贴板：复制航点后暂存在这里，供"粘贴"使用 */
 static Waypoint clip;           // 复制的航点
@@ -49,11 +46,12 @@ void DrawEditPanel(int x, int w, int y) {
             int r = k / 3, c = k % 3;
             Rectangle br = { x + c * (lw + 3), (float)(y + r * 26), lw, 22 };
             if (Btn(br, lnames[k], d->light == lvals[k] ? lcols[k] : Bt)) {
-                UndoPush();                 // 记录快照
-                d->light = lvals[k];
+                d->light = lvals[k];    // 切换灯光模式
+                PrintDrone(d);          // 终端实时显示灯光变化
             }
         }
         y += 2 * 26 + 4;
+
         Sep(x, y, w);
         y += 6;
 
@@ -74,16 +72,17 @@ void DrawEditPanel(int x, int w, int y) {
                 float px = (float)atof(wx);
                 float py = (float)atof(wy);
                 float pz = (float)atof(wz);
-                if (py < 0.5f) py = 0.5f;
-                if (py > 30)   py = 30;
                 Pt wp = (Pt){px, py, pz};
                 /* 路径点越界检查：越界则弹窗提示，不加入 */
                 if (!InAirspace(wp)) {
-                    SetAlert("Waypoint out of range (%.1f, %.1f, %.1f)", px, py, pz);
+                    SetAlert("Waypoint out of range (%.0f, %.0f, %.0f)", px, py, pz);
                 } else {
-                    UndoPush();             // 记录快照
                     d->wp[d->wc].p = wp;
                     d->wc++;
+                    /* 与其它机重合：CheckOverlap 已弹窗提示，这里回滚刚加入的航点，
+                     * 避免留下一条会相撞的轨迹（否则关掉弹窗后它还在）。 */
+                    if (CheckOverlap(S))
+                        d->wc--;
                 }
             } else {
                 Msg("Max waypoints!");
@@ -95,34 +94,32 @@ void DrawEditPanel(int x, int w, int y) {
         DrawText(TextFormat("Waypoints: %d  Len: %.1fm", d->wc, PathLen(d)), x, y, 12, Gr);
         y += 15;
 
-        /* 顶部工具：粘贴 + 清空 */
+        /* 顶部工具：复制 + 粘贴（并排放在一起）
+         * "Copy" 复制最后一个航点，"Paste" 把它追加到末尾。 */
         if (Btn((Rectangle){x, (float)y, w / 2 - 3, 20},
-                clipSet ? "Paste" : "(No copy)", clipSet ? Gn : Bt)) {
-            if (clipSet && d->wc < MAX_WP) { UndoPush(); d->wp[d->wc] = clip; d->wc++; }
+                "Copy", d->wc > 0 ? Bl : Bt)) {
+            if (d->wc > 0) { clip = d->wp[d->wc - 1]; clipSet = true; Msg("Copied last waypoint"); }
         }
-        if (Btn((Rectangle){x + w / 2 + 3, (float)y, w / 2 - 3, 20}, "Clear All", Rd)) {
-            if (d->wc > 0) { UndoPush(); d->wc = 0; }
+        if (Btn((Rectangle){x + w / 2 + 3, (float)y, w / 2 - 3, 20},
+                "Paste", clipSet ? Gn : Bt)) {
+            if (clipSet && d->wc < MAX_WP) { d->wp[d->wc] = clip; d->wc++; }
         }
         y += 24;
 
-        /* 每个航点一行：坐标 + 上移/下移/复制/删除 */
+        /* 每个航点一行：坐标 + 上移/下移/删除 */
         for (int i = 0; i < d->wc && i < 6; i++) {
             DrawText(TextFormat("#%d %.0f,%.0f,%.0f", i + 1,
                 d->wp[i].p.x, d->wp[i].p.y, d->wp[i].p.z),
                 x + 2, y + 2, 11, Wh);
 
-            float bx = x + w - 78;                  // 右侧按钮区起点
+            float bx = x + w - 58;                  // 右侧按钮区起点（3个按钮）
             if (Btn((Rectangle){bx,      (float)y, 18, 18}, "^", i > 0 ? Gn : Bt)) {
-                if (i > 0) { UndoPush(); Waypoint t = d->wp[i]; d->wp[i] = d->wp[i - 1]; d->wp[i - 1] = t; }
+                if (i > 0) { Waypoint t = d->wp[i]; d->wp[i] = d->wp[i - 1]; d->wp[i - 1] = t; }
             }
             if (Btn((Rectangle){bx + 20, (float)y, 18, 18}, "v", i < d->wc - 1 ? Gn : Bt)) {
-                if (i < d->wc - 1) { UndoPush(); Waypoint t = d->wp[i]; d->wp[i] = d->wp[i + 1]; d->wp[i + 1] = t; }
+                if (i < d->wc - 1) { Waypoint t = d->wp[i]; d->wp[i] = d->wp[i + 1]; d->wp[i + 1] = t; }
             }
-            if (Btn((Rectangle){bx + 40, (float)y, 18, 18}, "C", Bl)) {
-                clip = d->wp[i]; clipSet = true;    // 复制到剪贴板
-            }
-            if (Btn((Rectangle){bx + 60, (float)y, 18, 18}, "X", Rd)) {
-                UndoPush();
+            if (Btn((Rectangle){bx + 40, (float)y, 18, 18}, "X", Rd)) {
                 for (int j = i; j < d->wc - 1; j++)
                     d->wp[j] = d->wp[j + 1];
                 d->wc--;
@@ -134,22 +131,24 @@ void DrawEditPanel(int x, int w, int y) {
         if (d->wc > 6)
             DrawText("... more ...", x + 4, y, 11, Gr);
 
+        /* ---- 轨迹平滑模式（只影响选中这架无人机，每架独立） ----
+         * Eased=直线+缓动（加速→减速）  Spline=平滑曲线 */
+        DrawText("Path style:", x, y, 12, Gr);
+        y += 14;
+        float pmw = (w - 8) / 2.0f;
+        if (Btn((Rectangle){x, (float)y, pmw, 20}, "Eased", d->pm == PM_EASED ? Gn : Bt)) d->pm = PM_EASED;
+        if (Btn((Rectangle){x + pmw + 3, (float)y, pmw, 20}, "Spline", d->pm == PM_SPLINE ? Gn : Bt)) d->pm = PM_SPLINE;
+        y += 24;
+
         Sep(x, y, w);
         y += 6;
 
-        /* 底部按钮 */
-        if (Btn((Rectangle){x, (float)y, w / 2 - 3, 22}, "Delete Drone", Rd))
-            DelDrone(S);
-
+        /* 复制整架无人机 + 返回 Setup */
+        if (Btn((Rectangle){x, (float)y, w / 2 - 3, 22}, "Duplicate", Bl))
+            DuplicateDrone(S);
         if (Btn((Rectangle){x + w / 2 + 3, (float)y, w / 2 - 3, 22}, "<- Setup", Bt))
             M = M_SETUP;
         y += 26;
-
-        /* 复制 / 镜像：复制整架无人机，或沿 X 中线镜像路径 */
-        if (Btn((Rectangle){x, (float)y, w / 2 - 3, 20}, "Duplicate", Bl))
-            DuplicateDrone(S);
-        if (Btn((Rectangle){x + w / 2 + 3, (float)y, w / 2 - 3, 20}, "Mirror X", Bl))
-            MirrorPath(S);
 
     } else {
         /* 无选中无人机时 */
@@ -159,62 +158,6 @@ void DrawEditPanel(int x, int w, int y) {
         y += 14;
         if (Btn((Rectangle){x, (float)y, w, 22}, "<- Back to Setup", Bt))
             M = M_SETUP;
+        y += 26;
     }
-
-    /* ---- 安全检测（针对所有无人机，与是否选中无关） ---- */
-    y += 28;                            // 让出上一步按钮（高22）的高度 + 间距
-    Sep(x, y, w);
-    y += 6;
-
-    if (Btn((Rectangle){x, (float)y, w, 22}, "Safety Check", Gn))
-        RunSafetyCheck();               // 点击运行检测
-    y += 26;
-
-    if (safetyChecked) {                // 至少运行过一次才显示结果
-        if (nCollisions == 0) {
-            DrawText("All safe - no collisions", x, y, 12, Gn);
-            y += 14;
-        } else {
-            DrawText(TextFormat("Collision risk: %d", nCollisions), x, y, 12, Rd);
-            y += 15;
-
-            int shown = 0;
-            /* 碰撞风险列表（最多显示4条） */
-            for (int i = 0; i < nCollisions && shown < 4; i++) {
-                Collision* c = &collisions[i];
-                if (c->a >= N || c->b >= N) continue;   // 无人机已删除，跳过
-                DrawText(TextFormat("%s x %s @%.1fs (%.2fm)",
-                        D[c->a].name, D[c->b].name, c->t, c->dist),
-                        x + 4, y, 11, Rd);
-                y += 13;
-                shown++;
-            }
-            if (nCollisions > shown)
-                DrawText("... more ...", x + 4, y, 11, Gr);
-        }
-    }
-
-    /* ---- 工具条：撤销 / 重做 / 保存 / 加载 ---- */
-    y += 6;
-    Sep(x, y, w);
-    y += 6;
-
-    if (Btn((Rectangle){x, (float)y, w / 2 - 3, 20}, "Undo", UndoCan() ? Gn : Bt)) Undo();
-    if (Btn((Rectangle){x + w / 2 + 3, (float)y, w / 2 - 3, 20}, "Redo", RedoCan() ? Gn : Bt)) Redo();
-    y += 24;
-
-    if (Btn((Rectangle){x, (float)y, w / 2 - 3, 20}, "Save", Bl)) {
-        if (SaveShow("show.json")) Msg("Saved to show.json");
-        else                       Msg("Save failed!");
-    }
-    if (Btn((Rectangle){x + w / 2 + 3, (float)y, w / 2 - 3, 20}, "Load", Bl)) {
-        if (LoadShow("show.json")) { Rst(); Msg("Loaded from show.json"); }
-        else                        Msg("Load failed!");
-    }
-    y += 24;
-
-    /* 自检按钮：跑一遍核心算法断言，验证数学函数没被改坏 */
-    if (Btn((Rectangle){x, (float)y, w, 20}, "Self-Test", Bl))
-        RunSelfTest();
-    y += 24;
 }

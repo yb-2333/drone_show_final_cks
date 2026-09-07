@@ -19,8 +19,17 @@ void DelDrone(int i);
 /* 复制第 i 架无人机（含航点），新机沿 X 轴偏移 1 米 */
 void DuplicateDrone(int i);
 
-/* 把第 i 架无人机的路径沿 X 轴中线镜像（制作对称编队） */
-void MirrorPath(int i);
+/* 把灯光模式转成可读名字（终端打印用） */
+const char* LightName(Light l);
+
+/* 在终端打印一架无人机的实时状态（位置+颜色+灯光） */
+void PrintDrone(const Drone* d);
+
+/* 把某架无人机的起点坐标写入 sx/sy/sz 输入框（Setup 界面用） */
+void FillCoords(const Drone* d);
+
+/* 把 Setup 坐标输入框的值应用到选中无人机（移动它），按回车触发 */
+void ApplySetupCoords(void);
 
 /* 根据无人机的灯光模式和选中状态，计算它在3D场景中的显示颜色 */
 Color RC(Drone* d);
@@ -46,5 +55,11 @@ void FormLine(void);
 
 /* 把所有无人机的起始位置重新排列成网格编队 */
 void FormGrid(void);
+
+/* 一键队形变换动画：给每架无人机追加飞到目标队形的航点（type: 0圆 1线 2网格） */
+void FormTransition(int type);
+
+/* 一键生成示例表演：12架无人机圆形起点+灯光+队形变换动画，供新手快速体验 */
+void MakeDemo(void);
 
 #endif  /* DRONE_H */

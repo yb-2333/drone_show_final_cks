@@ -6,7 +6,7 @@
 #include "render.h"     // 自己的头文件
 #include "common.h"     // 全局变量：Cam, GROUND, N, D, PW, Gr, Rd, Gn, Bl
 #include "drone.h"      // DD() 绘制无人机函数
-#include "safety.h"     // SafetyWarn（安全检测高亮）
+#include "safety.h"     // alertActive（告警弹窗显示时不拾取）
 
 /* ================================================================
  *  Draw3D() - 绘制整个3D场景
@@ -36,16 +36,16 @@ void Draw3D(void) {
     /* ---- 原点标记 ---- */
     DrawSphere((Vector3){0, 0.02f, 0}, 0.25f, Rd);    // 红色小圆球
 
-    /* ---- 三色坐标轴 ---- */
-    DrawLine3D((Vector3){0, 0, 0}, (Vector3){S, 0, 0}, Rd);  // X轴=红色
-    DrawLine3D((Vector3){0, 0, 0}, (Vector3){0, S, 0}, Gn);  // Y轴=绿色（高度）
-    DrawLine3D((Vector3){0, 0, 0}, (Vector3){0, 0, S}, Bl);  // Z轴=蓝色
+    /* ---- 三色坐标轴（Z 轴向上，X/Y 为水平面，颜色与右侧输入框一致）---- */
+    DrawLine3D((Vector3){0, 0, 0}, (Vector3){S, 0, 0}, Rd);  // X轴=红色（水平）
+    DrawLine3D((Vector3){0, 0, 0}, (Vector3){0, 0, S}, Gn);  // Y轴=绿色（水平）
+    DrawLine3D((Vector3){0, 0, 0}, (Vector3){0, S, 0}, Bl);  // Z轴=蓝色（竖直向上）
 
     /* ---- 空域边界框（半透明，展示允许飞行的范围） ----
-     * 空域 = X/Z 0~40 米，Y 0.5~30 米。用 12 条边画出一个长方体，
+     * 空域 = X/Y/Z 0~40 米（40×40×40 立方体）。用 12 条边画出一个长方体，
      * 让用户一眼看出无人机能飞的空间有多大。 */
     {
-        float y0 = 0.5f, y1 = 30.0f;            // 最低/最高飞行高度
+        float y0 = 0.0f, y1 = 40.0f;            // 最低/最高飞行高度（0~40 米）
         Color bc = Fade(Ye, 0.35f);             // 边界框颜色（淡黄）
 
         /* 底面四边（y0 高度） */
@@ -70,14 +70,6 @@ void Draw3D(void) {
     /* ---- 绘制所有无人机 ---- */
     for (int i = 0; i < N; i++)
         DD(&D[i]);                          // 委托 drone.c 的 DD 函数
-
-    /* ---- 安全检测高亮 ---- */
-    for (int i = 0; i < N; i++) {
-        if (!D[i].act) continue;            // 跳过不存在的
-        if (SafetyWarn(i))                  // 有碰撞风险的无人机
-            DrawCircle3D((Vector3){D[i].pos.x, D[i].pos.y, D[i].pos.z},
-                         DR * 2.5f, (Vector3){0, 1, 0}, 0, Rd);  // 红色醒目环
-    }
 
     EndMode3D();                            // 退出3D模式
 }
@@ -116,7 +108,7 @@ int Pick(void) {
 
         /* 射线与无人机包围球碰撞检测（球半径=DR×4，放大方便点击） */
         RayCollision rc = GetRayCollisionSphere(r,
-            (Vector3){D[i].pos.x, D[i].pos.y, D[i].pos.z},
+            (Vector3){D[i].pos.x, D[i].pos.z, D[i].pos.y},   // 数据Z=高度→raylib Y
             DR * 4);
 
         /* 碰到了且距离比之前更近 → 更新最近记录 */
@@ -153,5 +145,5 @@ Pt MouseGround(float y) {
         y,
         r.position.z + r.direction.z * t
     };
-    return (Pt){p.x, p.y, p.z};
+    return (Pt){p.x, p.z, p.y};                  // raylib Y(高度) → 数据 Z
 }

@@ -15,7 +15,71 @@
 #include "utils.h"      // Msg() 函数、Hsv2Rgb() 颜色转换
 #include "safety.h"     // InAirspace, SetAlert（创建时起点越界弹窗）
 #include "trajectory.h" // PathLen, DronePosAt（回放插值）
-#include "undo.h"       // UndoPush（变更前记录快照）
+
+/* ================================================================
+ *  LightName() - 把灯光模式转成可读名字（终端打印用）
+ * ================================================================ */
+const char* LightName(Light l) {
+    switch (l) {
+        case L_OFF:     return "Off";
+        case L_ON:      return "On";
+        case L_BLINK:   return "Blink";
+        case L_PULSE:   return "Pulse";
+        case L_CHASE:   return "Chase";
+        case L_RAINBOW: return "Rainbow";
+        default:        return "?";
+    }
+}
+
+/* ================================================================
+ *  PrintDrone() - 在终端打印一架无人机的实时状态
+ *
+ *  对应课程要求"实时模拟：在终端动态显示位置和灯光状态"。
+ *  选中 / 改灯光 / 改颜色 / 改坐标时都会调用，打印一行状态。
+ * ================================================================ */
+void PrintDrone(const Drone* d) {
+    printf("[%s] pos=(%.0f, %.0f, %.0f)  color=%s  light=%s\n",
+           d->name, d->pos.x, d->pos.y, d->pos.z,
+           LCN[d->color], LightName(d->light));
+    fflush(stdout);                 // 立即刷新，保证终端实时看到
+}
+
+/* ================================================================
+ *  FillCoords() - 把某架无人机的起点坐标写入 sx/sy/sz 输入框
+ *
+ *  供 Setup 界面"点列表行 → 坐标输入框显示该机坐标"使用。
+ * ================================================================ */
+void FillCoords(const Drone* d) {
+    snprintf(sx, sizeof(sx), "%.0f", d->start.x);
+    snprintf(sy, sizeof(sy), "%.0f", d->start.y);
+    snprintf(sz, sizeof(sz), "%.0f", d->start.z);
+}
+
+/* ================================================================
+ *  ApplySetupCoords() - 把 Setup 坐标输入框的值应用到选中无人机
+ *
+ *  用户在 Setup 选中一架无人机、改坐标后按回车，就把它移动到新位置。
+ * ================================================================ */
+void ApplySetupCoords(void) {
+    if (S < 0 || S >= N || !D[S].act) return;
+
+    float px = (float)atof(sx);
+    float py = (float)atof(sy);
+    float pz = (float)atof(sz);
+
+    Pt p = (Pt){px, py, pz};
+    if (!InAirspace(p)) {           // 越界则弹窗提示
+        SetAlert("Position out of range (%.0f, %.0f, %.0f)", px, py, pz);
+        return;
+    }
+
+    D[S].start = p;                 // 移动到新位置
+    D[S].pos   = p;
+    D[S].h     = pz;
+    CheckOverlap(S);                // 检查是否与其他机起点/终点重合
+    Msg("%s moved to (%.0f, %.0f, %.0f)", D[S].name, px, py, pz);
+    PrintDrone(&D[S]);              // 终端实时显示新坐标
+}
 
 /* ================================================================
  *  MakeDrone() - 创建一架新无人机
@@ -35,18 +99,12 @@ void MakeDrone(void) {
     float py = (float)atof(sy);
     float pz = (float)atof(sz);
 
-    /* 限制高度范围：最低0.5米，最高30米 */
-    if (py < 0.5f) py = 0.5f;
-    if (py > 30)   py = 30;
-
-    /* 起点越界检查：X/Z 必须在 0~GROUND 内（Y 已在上方钳制），越界则弹窗并放弃创建 */
+    /* 起点越界检查：X/Y/Z 必须在 0~40 内（40×40×40 空域），越界则弹窗并放弃创建 */
     Pt sp = (Pt){px, py, pz};               // 起始位置（复合字面量）
     if (!InAirspace(sp)) {
-        SetAlert("Start out of range (%.1f, %.1f, %.1f)", px, py, pz);
+        SetAlert("Start out of range (%.0f, %.0f, %.0f)", px, py, pz);
         return;
     }
-
-    UndoPush();                             // 记录快照（真正变更之前）
 
     Drone* d = &D[N];                       // 取第N个槽位的指针
     memset(d, 0, sizeof(Drone));            // 全部内存清零（安全初始化）
@@ -54,8 +112,9 @@ void MakeDrone(void) {
     d->light = L_ON;                        // 默认常亮
     d->color = ic;                          // 使用用户选的颜色
     d->bon   = 1;                           // 闪烁初始为亮
-    d->h     = py;                          // 保存高度
+    d->h     = pz;                          // 保存高度
     d->espeed = 1.0f;                       // 灯光效果速度倍率默认1
+    d->pm     = PM_EASED;                   // 轨迹平滑模式默认缓动
     d->ph     = (float)N;                   // 效果相位 = 序号（追逐灯用）
 
     d->start = sp;                          // 设置起始位置
@@ -67,6 +126,9 @@ void MakeDrone(void) {
 
     Msg("Created %s (%.0f,%.0f,%.0f) [%s]",
         d->name, px, py, pz, LCN[ic]);
+
+    CheckOverlap(N - 1);                    // 检查新机是否与其他机起点/终点重合
+    PrintDrone(d);                          // 终端实时显示新机状态
 }
 
 /* ================================================================
@@ -76,8 +138,6 @@ void MakeDrone(void) {
  * ================================================================ */
 void DelDrone(int i) {
     if (i < 0 || i >= N) return;            // 索引越界检查
-
-    UndoPush();                             // 记录快照
 
     /* 从位置i开始，每个元素用后一个覆盖 */
     for (int j = i; j < N - 1; j++)
@@ -165,45 +225,46 @@ void DD(Drone* d) {
     Pt    p = d->pos;                       // 当前位置
     Color c = RC(d);                        // 计算后的渲染颜色
 
-    /* 主灯光球（1.3倍基准半径） */
-    DrawSphere((Vector3){p.x, p.y, p.z}, DR * 1.3f, c);
+    /* 主灯光球（1.3倍基准半径）
+     * 注意：数据用 Z 表示高度，raylib 用 Y 表示向上，绘制时交换 Y/Z。 */
+    DrawSphere((Vector3){p.x, p.z, p.y}, DR * 1.3f, c);
 
     /* 第一层光晕（1.9倍半径，30%透明度） */
-    DrawSphere((Vector3){p.x, p.y, p.z}, DR * 1.9f, Fade(c, 0.3f));
+    DrawSphere((Vector3){p.x, p.z, p.y}, DR * 1.9f, Fade(c, 0.3f));
 
     /* 机身核心（0.5倍半径，深灰色） */
-    DrawSphere((Vector3){p.x, p.y, p.z}, DR * 0.5f, (Color){28, 28, 36, 255});
+    DrawSphere((Vector3){p.x, p.z, p.y}, DR * 0.5f, (Color){28, 28, 36, 255});
 
     /* 选中高亮环（蓝色圆圈围绕无人机） */
     if (d->sel)
-        DrawCircle3D((Vector3){p.x, p.y, p.z}, DR * 2.0f,
+        DrawCircle3D((Vector3){p.x, p.z, p.y}, DR * 2.0f,
                      (Vector3){0, 1, 0}, 0, Bl);
 
     /* 编辑模式下：绘制黄色路径点和连线 */
     if (M == M_EDIT && d->wc > 0) {
         for (int i = 0; i < d->wc; i++) {
             /* 路径点小球（黄色） */
-            DrawSphere((Vector3){d->wp[i].p.x, d->wp[i].p.y, d->wp[i].p.z},
+            DrawSphere((Vector3){d->wp[i].p.x, d->wp[i].p.z, d->wp[i].p.y},
                        DR * 0.7f, Ye);
 
             /* 上一个点到当前点的连线（第一个路径点的"上一个"是起点） */
             Pt pr = (i == 0) ? d->start : d->wp[i - 1].p;
-            DrawLine3D((Vector3){pr.x, pr.y, pr.z},
-                       (Vector3){d->wp[i].p.x, d->wp[i].p.y, d->wp[i].p.z},
+            DrawLine3D((Vector3){pr.x, pr.z, pr.y},
+                       (Vector3){d->wp[i].p.x, d->wp[i].p.z, d->wp[i].p.y},
                        Fade(Ye, 0.5f));
         }
 
-        /* 平滑路径预览：按当前 pathMode 采样画出实际飞行轨迹（蓝色）
-         * 直线模式 = 直线，缓动/样条模式 = 平滑曲线，
+        /* 平滑路径预览：按这架无人机自己的 pm 采样画出实际飞行轨迹（蓝色）
+         * 缓动 = 直线+缓动，样条 = 平滑曲线，
          * 让用户在编辑时就能看到回放会走的真实路径。 */
         float L = PathLen(d);                   // 总长
         int   n = 48;                           // 采样段数（越多越平滑）
         Pt    prev = d->start;
         for (int k = 1; k <= n; k++) {
             float s = L * k / n;                // 等距采样点
-            Pt    p = DronePosAt(d, s, pathMode);   // 用共享函数采样位置
-            DrawLine3D((Vector3){prev.x, prev.y, prev.z},
-                       (Vector3){p.x, p.y, p.z}, Fade(Bl, 0.6f));
+            Pt    p = DronePosAt(d, s);         // 用共享函数采样位置
+            DrawLine3D((Vector3){prev.x, prev.z, prev.y},
+                       (Vector3){p.x, p.z, p.y}, Fade(Bl, 0.6f));
             prev = p;
         }
     }
@@ -230,7 +291,7 @@ void Rst(void) {
  *  Upd() - 更新回放动画（Update playback）
  *
  *  每帧调用。每架无人机沿自己的路径前进一段距离，然后用
- *  DronePosAt() 按当前平滑模式（pathMode）采样位置。
+ *  DronePosAt() 按每架无人机自己的平滑模式（pm）采样位置。
  *
  *  关键：这里不再自己算直线移动，而是把"已飞距离 flown"交给
  *  trajectory.c 的 DronePosAt()，后者统一处理直线/缓动/样条插值。
@@ -261,7 +322,7 @@ void Upd(float dt) {
         if (d->flown >= L) { d->flown = L; d->fin = 1; }
 
         /* 用共享的位置函数采样当前位置 */
-        d->pos = DronePosAt(d, d->flown, pathMode);
+        d->pos = DronePosAt(d, d->flown);
     }
 
     /* 计算播放进度：每架无人机"已飞比例"的平均值（0.0 ~ 1.0） */
@@ -285,9 +346,11 @@ void Upd(float dt) {
 /* ================================================================
  *  编队变换（Formation）
  *
- *  把"所有激活无人机"的起始位置重新排列成某种队形。
- *  只改 start/pos（无人机停在哪），保留各自航点、颜色和灯光，
- *  因此变换后整体队形改变、各自飞行轨迹保持不变。
+ *  两种用法：
+ *    1. FormCircle / FormLine / FormGrid —— 把无人机"瞬间"排成队形
+ *       （直接改 start/pos，无人机停在哪），Setup 界面用。
+ *    2. FormTransition —— "一键队形变换动画"：给每架无人机追加一个
+ *       飞到目标队形位置的航点，Show 播放时它们会一起飞过去，Edit 界面用。
  * ================================================================ */
 
 /* Clampf() - 把 v 限制在 [lo, hi] 之间 */
@@ -297,9 +360,45 @@ static float Clampf(float v, float lo, float hi) {
     return v;
 }
 
-/* FormReset() - 编队变换的公共前置：记录快照 + 重置飞行状态 */
+/* FormTarget() - 计算所有无人机在某种队形下的目标位置（只算不改）
+ *   type: 0=圆形 1=直线 2=网格
+ *   out : 输出数组，out[i] = 第 i 架无人机的目标坐标
+ */
+static void FormTarget(int type, Pt out[MAX_DRONES]) {
+    if (type == 0) {                        // 圆形：围绕地面中心等角分布
+        float cx = GROUND / 2;              // 圆心 X（水平）
+        float cy = GROUND / 2;              // 圆心 Y（水平）
+        float R  = 3.0f + N * 0.6f;         // 半径随数量增大，避免挤在一起
+        if (R > GROUND / 2 - 1) R = GROUND / 2 - 1;
+        float h  = 5.0f;                    // 飞行高度（Z 轴）
+        for (int i = 0; i < N; i++) {
+            float a = (float)i / N * 2.0f * PI;   // 等角分布（0~2π）
+            out[i] = (Pt){
+                Clampf(cx + cosf(a) * R, 0.5f, GROUND - 0.5f),   // X
+                Clampf(cy + sinf(a) * R, 0.5f, GROUND - 0.5f),   // Y（水平）
+                h                                                 // Z（高度）
+            };
+        }
+    } else if (type == 1) {                 // 直线：沿 X 轴等距排开
+        float spacing = (N <= 1) ? 0 : (GROUND - 2) / (N - 1);
+        float h = 5.0f, y = GROUND / 2;     // 高度统一、Y 固定在中央
+        for (int i = 0; i < N; i++)
+            out[i] = (Pt){ Clampf(1.0f + i * spacing, 0.5f, GROUND - 0.5f), y, h };
+    } else {                                // 网格：接近正方形的栅格
+        int cols = (int)ceilf(sqrtf((float)N));
+        int rows = (N + cols - 1) / cols;
+        float h  = 5.0f;                    // 飞行高度（Z 轴）
+        float gx = GROUND / (cols + 1);     // X 方向格子间距
+        float gy = GROUND / (rows + 1);     // Y 方向格子间距
+        for (int i = 0; i < N; i++) {
+            int c = i % cols, r = i / cols;
+            out[i] = (Pt){ gx * (c + 1), gy * (r + 1), h };
+        }
+    }
+}
+
+/* FormReset() - 编队变换的公共前置：重置飞行状态 */
 static void FormReset(const char* name) {
-    UndoPush();                             // 记录快照（可撤销）
     for (int i = 0; i < N; i++) {
         D[i].flown = 0;                     // 重置已飞距离
         D[i].fin   = 0;                     // 标记未完成
@@ -308,66 +407,103 @@ static void FormReset(const char* name) {
     Msg("Formation: %s (%d drones)", name, N);
 }
 
-/* FormCircle() - 圆形编队：所有无人机围绕中心等角分布 */
+/* FormCircle() - 圆形编队：所有无人机瞬间排成圆形 */
 void FormCircle(void) {
     if (N <= 0) return;
     FormReset("Circle");
-
-    float cx = GROUND / 2;                  // 圆心 X（地面中央）
-    float cz = GROUND / 2;                  // 圆心 Z
-    float R  = 3.0f + N * 0.6f;             // 半径随数量增大，避免挤在一起
-    if (R > GROUND / 2 - 1) R = GROUND / 2 - 1;  // 保证圆不超出地面
-    float h  = 5.0f;                        // 统一飞行高度
-
+    Pt t[MAX_DRONES];
+    FormTarget(0, t);
     for (int i = 0; i < N; i++) {
-        float a = (float)i / N * 2.0f * PI; // 等角分布（0~2π）
-        Pt p = {
-            Clampf(cx + cosf(a) * R, 0.5f, GROUND - 0.5f),
-            h,
-            Clampf(cz + sinf(a) * R, 0.5f, GROUND - 0.5f)
-        };
-        D[i].start = p;
-        D[i].pos   = p;
-        D[i].h     = h;
+        D[i].start = t[i];
+        D[i].pos   = t[i];
+        D[i].h     = 5.0f;
     }
 }
 
-/* FormLine() - 直线编队：沿 X 轴等距排开 */
+/* FormLine() - 直线编队：所有无人机瞬间排成直线 */
 void FormLine(void) {
     if (N <= 0) return;
     FormReset("Line");
-
-    float spacing = (N <= 1) ? 0 : (GROUND - 2) / (N - 1);   // 间距
-    float h = 5.0f;
-    float z = GROUND / 2;                   // Z 固定在中央
-
+    Pt t[MAX_DRONES];
+    FormTarget(1, t);
     for (int i = 0; i < N; i++) {
-        Pt p = { Clampf(1.0f + i * spacing, 0.5f, GROUND - 0.5f), h, z };
-        D[i].start = p;
-        D[i].pos   = p;
-        D[i].h     = h;
+        D[i].start = t[i];
+        D[i].pos   = t[i];
+        D[i].h     = 5.0f;
     }
 }
 
-/* FormGrid() - 网格编队：按接近正方形的栅格排列 */
+/* FormGrid() - 网格编队：所有无人机瞬间排成网格 */
 void FormGrid(void) {
     if (N <= 0) return;
     FormReset("Grid");
-
-    int cols = (int)ceilf(sqrtf((float)N));     // 列数 ≈ √N
-    int rows = (N + cols - 1) / cols;           // 行数（向上取整）
-    float h  = 5.0f;
-    float gx = GROUND / (cols + 1);             // X 方向格子间距
-    float gz = GROUND / (rows + 1);             // Z 方向格子间距
-
+    Pt t[MAX_DRONES];
+    FormTarget(2, t);
     for (int i = 0; i < N; i++) {
-        int c = i % cols;                       // 第几列
-        int r = i / cols;                       // 第几行
-        Pt p = { gx * (c + 1), h, gz * (r + 1) };
-        D[i].start = p;
-        D[i].pos   = p;
-        D[i].h     = h;
+        D[i].start = t[i];
+        D[i].pos   = t[i];
+        D[i].h     = 5.0f;
     }
+}
+
+/* ================================================================
+ *  FormTransition() - 一键队形变换动画
+ *
+ *  与上面三个"瞬间排好"不同，这里不直接移动无人机，而是给每架
+ *  无人机追加一个"飞到目标队形位置"的航点。进入 Show 播放时，
+ *  所有无人机就会从当前位置一起飞到目标队形，形成变换动画。
+ *
+ *  type: 0=圆形 1=直线 2=网格
+ * ================================================================ */
+void FormTransition(int type) {
+    if (N <= 0) return;
+    Pt t[MAX_DRONES];
+    FormTarget(type, t);
+
+    int added = 0;
+    for (int i = 0; i < N; i++) {
+        if (!D[i].act) continue;
+        if (D[i].wc >= MAX_WP) continue;     // 航点满了跳过
+        D[i].wp[D[i].wc].p = t[i];           // 追加一个目标航点
+        D[i].wc++;
+        added++;
+    }
+
+    const char* name = type == 0 ? "Circle" : type == 1 ? "Line" : "Grid";
+    Msg("Fly to %s: %d waypoints added", name, added);
+}
+
+/* ================================================================
+ *  MakeDemo() - 一键生成示例表演
+ *
+ *  生成 12 架无人机：起点排成圆形，颜色轮流、灯光效果各异，
+ *  再自动追加"飞到直线 → 网格"的航点，形成完整的队形变换动画。
+ *  新手打开软件点一下"Load Demo Show"，就能直接进 Show 播放看效果。
+ * ================================================================ */
+void MakeDemo(void) {
+    N = 0;                              // 清空已有无人机
+    S = -1;
+
+    int count = 12;                     // 示例无人机数量
+    for (int i = 0; i < count; i++) {
+        snprintf(sx, sizeof(sx), "%.0f", 5.0f + i);   // 临时起点（稍后重排）
+        snprintf(sy, sizeof(sy), "20");               // Y（水平）
+        snprintf(sz, sizeof(sz), "5");                // Z（高度）
+        ic = i % 8;                     // 颜色轮流
+        MakeDrone();
+    }
+
+    FormCircle();                       // 起点排成圆形编队
+
+    Light lights[] = {L_ON, L_BLINK, L_PULSE, L_CHASE, L_RAINBOW};
+    for (int i = 0; i < N; i++)
+        D[i].light = lights[i % 5];     // 灯光效果轮流
+
+    FormTransition(1);                  // 追加航点：飞到直线
+    FormTransition(2);                  // 追加航点：飞到网格
+    Rst();                              // 回到起点，准备播放
+
+    Msg("Demo loaded: %d drones - go to Show and Play", N);
 }
 
 /* ================================================================
@@ -380,7 +516,6 @@ void DuplicateDrone(int i) {
     if (i < 0 || i >= N || !D[i].act) return;  // 索引无效或未激活
     if (N >= MAX_DRONES) { Msg("Max %d drones!", MAX_DRONES); return; }
 
-    UndoPush();                                 // 记录快照
     if (S >= 0) D[S].sel = 0;                   // 取消旧选中
 
     Drone* d = &D[N];                           // 新机放在数组末尾
@@ -400,24 +535,6 @@ void DuplicateDrone(int i) {
     d->sel = 1;
 
     Msg("Duplicated -> %s", d->name);
+    PrintDrone(d);                          // 终端显示复制出的新机
 }
 
-/* ================================================================
- *  MirrorPath() - 把第 i 架无人机的路径沿 X 轴中线镜像
- *
- *  镜像公式：x' = 2×中线 - x，中线取地面中央 GROUND/2。
- *  用于快速制作左右对称的编队（只改 X，Y/Z 不变）。
- * ================================================================ */
-void MirrorPath(int i) {
-    if (i < 0 || i >= N || !D[i].act) return;
-
-    UndoPush();                                 // 记录快照
-    Drone* d = &D[i];
-    float ax = GROUND / 2;                      // 对称轴（X 中线）
-
-    d->start.x = 2 * ax - d->start.x;           // 镜像起点
-    for (int w = 0; w < d->wc; w++)
-        d->wp[w].p.x = 2 * ax - d->wp[w].p.x;   // 镜像每个航点
-
-    Msg("Mirrored %s across X", d->name);
-}

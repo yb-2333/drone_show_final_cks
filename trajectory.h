@@ -45,15 +45,13 @@ float PathLen(const Drone* d);
  * DronePosAt() - 返回无人机在"已飞行距离 s"处的位置。
  *
  * 参数:
- *   d    - 无人机指针
+ *   d    - 无人机指针（其 pm 字段决定平滑模式）
  *   s    - 从起点算起的已飞行距离（米）
- *   mode - 平滑模式（PM_LINEAR / PM_EASED / PM_SPLINE）
  *
- * 原理：沿路径逐段推进，找到 s 落在哪一段，再按 mode 在该段内插值：
- *   PM_LINEAR -> 直线匀速
+ * 原理：沿路径逐段推进，找到 s 落在哪一段，再按 d->pm 在该段内插值：
  *   PM_EASED  -> 直线 + 缓动（加速→减速）
  *   PM_SPLINE -> Catmull-Rom 曲线（穿过航点且方向连续）
  */
-Pt DronePosAt(const Drone* d, float s, int mode);
+Pt DronePosAt(const Drone* d, float s);
 
 #endif  /* TRAJECTORY_H */

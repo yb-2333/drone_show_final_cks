@@ -57,11 +57,12 @@ typedef enum {
     M_SHOW          // 播放动画模式（自动=3）
 } Mode;
 
-/* 三维坐标点 */
+/* 三维坐标点
+ * 约定：Z 轴向上（垂直高度），X/Y 轴为水平面（地面）。 */
 typedef struct {
     float x;        // X轴（水平左右）
-    float y;        // Y轴（垂直高度）
-    float z;        // Z轴（深度前后）
+    float y;        // Y轴（水平前后）
+    float z;        // Z轴（垂直高度，向上）
 } Pt;
 
 /* 路径点（无人机飞行路线上的一个目标位置） */
@@ -88,6 +89,7 @@ typedef struct {
     float   flown;            // 累计已飞行距离（米），平滑回放用
     float   ph;               // 灯光效果相位（pulse/chase/rainbow 用）
     float   espeed;           // 灯光效果速度倍率（默认 1.0）
+    int     pm;               // 轨迹平滑模式（PM_EASED/PM_SPLINE，每架独立）
 } Drone;
 
 /* ============================ 全局变量声明（extern） ============================ */
@@ -126,7 +128,6 @@ extern bool  play;              // 是否正在播放
 extern bool  pause;             // 是否暂停
 extern float spd;               // 播放速度（0.5x ~ 8x）
 extern float prog;              // 播放进度（0.0 ~ 1.0）
-extern int   pathMode;          // 轨迹平滑模式（PM_LINEAR/PM_EASED/PM_SPLINE）
 
 /* 消息系统 */
 extern char  msg[256];          // 状态消息文本

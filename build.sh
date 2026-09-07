@@ -5,8 +5,8 @@ set -e
 cd "$(dirname "$0")"
 
 gcc common.c utils.c drone.c render.c ui.c ui_setup.c ui_edit.c ui_show.c \
-    input.c safety.c trajectory.c undo.c \
-    json.c json_parse.c json_emit.c json_store.c stats.c test.c main.c \
+    input.c safety.c trajectory.c \
+    json.c json_parse.c json_emit.c json_store.c stats.c main.c \
     -o drone_light_show.exe \
     -Iraylib/include -Lraylib/lib \
     -lraylibdll -lopengl32 -lgdi32 -lwinmm
