@@ -26,10 +26,14 @@
  *  DrawStartTitle() - 绘制欢迎界面的主标题与副标题
  * ================================================================ */
 static void DrawStartTitle(int sw, int sh) {
+    /* 用 MeasureText 测出文字实际宽度，让标题和副标题在屏幕中央水平居中对齐 */
+    int tw = MeasureText("Drone Light Show", 48);          // 主标题文字宽度
     DrawText("Drone Light Show",
-             sw / 2 - 260, sh / 2 - 80, 48, Ye);          // 主标题（黄色大字）
+             sw / 2 - tw / 2, sh / 2 - 80, 48, Ye);        // 主标题（黄色大字，居中）
+
+    int subw = MeasureText("Drone Formation Light Show Simulator", 22);  // 副标题宽度
     DrawText("Drone Formation Light Show Simulator",
-             sw / 2 - 300, sh / 2 - 16, 22, Wh);          // 副标题（白色）
+             sw / 2 - subw / 2, sh / 2 - 16, 22, Wh);      // 副标题（白色，居中）
 }
 
 /* ================================================================
