@@ -35,19 +35,23 @@ static void sbApp(Str* s, const char* t) {
 
 static void sbCh(Str* s, char c) { char t[2] = { c, 0 }; sbApp(s, t); }
 
+/* emitEscape() - 输出单个字符，遇到需转义的字符写出反斜杠形式 */
+static void emitEscape(Str* s, char c) {
+    switch (c) {
+        case '"':  sbApp(s, "\\\""); break;     // 双引号 → \"
+        case '\\': sbApp(s, "\\\\"); break;     // 反斜杠 → \\
+        case '\n': sbApp(s, "\\n");  break;     // 换行 → \n
+        case '\t': sbApp(s, "\\t");  break;     // 制表符 → \t
+        case '\r': sbApp(s, "\\r");  break;     // 回车 → \r
+        default:   sbCh(s, c);       break;     // 普通字符原样输出
+    }
+}
+
 /* 输出带转义的字符串字面量 */
 static void emitStr(Str* s, const char* str) {
     sbCh(s, '"');
-    for (const char* c = str; *c; c++) {
-        switch (*c) {
-            case '"':  sbApp(s, "\\\""); break;
-            case '\\': sbApp(s, "\\\\"); break;
-            case '\n': sbApp(s, "\\n");  break;
-            case '\t': sbApp(s, "\\t");  break;
-            case '\r': sbApp(s, "\\r");  break;
-            default:   sbCh(s, *c);      break;
-        }
-    }
+    for (const char* c = str; *c; c++)
+        emitEscape(s, *c);                      // 逐字符输出（含转义）
     sbCh(s, '"');
 }
 
@@ -58,7 +62,35 @@ static void emitIndent(Str* s, int depth) {
 
 static void emitValue(Str* s, JVal* v, int depth);
 
-/* emitArray / emitObject 也走 emitValue，这里统一处理 */
+/* emitArray() - 序列化数组 [ ... ]，每个元素一行、逐层缩进 */
+static void emitArray(Str* s, JVal* v, int depth) {
+    sbApp(s, "[\n");
+    for (int i = 0; i < v->count; i++) {
+        emitIndent(s, depth + 1);
+        emitValue(s, v->items[i], depth + 1);
+        if (i < v->count - 1) sbCh(s, ',');
+        sbCh(s, '\n');
+    }
+    emitIndent(s, depth);
+    sbCh(s, ']');
+}
+
+/* emitObject() - 序列化对象 { ... }，每个键值对一行、逐层缩进 */
+static void emitObject(Str* s, JVal* v, int depth) {
+    sbApp(s, "{\n");
+    for (int i = 0; i < v->count; i++) {
+        emitIndent(s, depth + 1);
+        emitStr(s, v->keys[i]);
+        sbApp(s, ": ");
+        emitValue(s, v->vals[i], depth + 1);
+        if (i < v->count - 1) sbCh(s, ',');
+        sbCh(s, '\n');
+    }
+    emitIndent(s, depth);
+    sbCh(s, '}');
+}
+
+/* emitValue() - 按类型分派序列化：标量直接写，数组/对象交给上面两个 */
 static void emitValue(Str* s, JVal* v, int depth) {
     if (!v) { sbApp(s, "null"); return; }
 
@@ -72,34 +104,8 @@ static void emitValue(Str* s, JVal* v, int depth) {
             break;
         }
         case J_STR: emitStr(s, v->str); break;
-
-        case J_ARR: {
-            sbApp(s, "[\n");
-            for (int i = 0; i < v->count; i++) {
-                emitIndent(s, depth + 1);
-                emitValue(s, v->items[i], depth + 1);
-                if (i < v->count - 1) sbCh(s, ',');
-                sbCh(s, '\n');
-            }
-            emitIndent(s, depth);
-            sbCh(s, ']');
-            break;
-        }
-
-        case J_OBJ: {
-            sbApp(s, "{\n");
-            for (int i = 0; i < v->count; i++) {
-                emitIndent(s, depth + 1);
-                emitStr(s, v->keys[i]);
-                sbApp(s, ": ");
-                emitValue(s, v->vals[i], depth + 1);
-                if (i < v->count - 1) sbCh(s, ',');
-                sbCh(s, '\n');
-            }
-            emitIndent(s, depth);
-            sbCh(s, '}');
-            break;
-        }
+        case J_ARR: emitArray(s, v, depth); break;
+        case J_OBJ: emitObject(s, v, depth); break;
     }
 }
 

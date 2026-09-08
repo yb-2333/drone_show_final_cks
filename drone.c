@@ -56,6 +56,17 @@ void FillCoords(const Drone* d) {
 }
 
 /* ================================================================
+ *  MoveDroneTo() - 把第 idx 架无人机移动到指定位置
+ *
+ *  同步更新起点、当前位置和高度（起始位置持久生效）。
+ * ================================================================ */
+static void MoveDroneTo(int idx, Pt p) {
+    D[idx].start = p;               // 移动到新位置
+    D[idx].pos   = p;
+    D[idx].h     = p.z;
+}
+
+/* ================================================================
  *  ApplySetupCoords() - 把 Setup 坐标输入框的值应用到选中无人机
  *
  *  用户在 Setup 选中一架无人机、改坐标后按回车，就把它移动到新位置。
@@ -63,22 +74,37 @@ void FillCoords(const Drone* d) {
 void ApplySetupCoords(void) {
     if (S < 0 || S >= N || !D[S].act) return;
 
-    float px = (float)atof(sx);
-    float py = (float)atof(sy);
-    float pz = (float)atof(sz);
-
-    Pt p = (Pt){px, py, pz};
+    Pt p = (Pt){ (float)atof(sx), (float)atof(sy), (float)atof(sz) };
     if (!InAirspace(p)) {           // 越界则弹窗提示
-        SetAlert("Position out of range (%.0f, %.0f, %.0f)", px, py, pz);
+        SetAlert("Position out of range (%.0f, %.0f, %.0f)", p.x, p.y, p.z);
         return;
     }
 
-    D[S].start = p;                 // 移动到新位置
-    D[S].pos   = p;
-    D[S].h     = pz;
+    MoveDroneTo(S, p);              // 移动到新位置
     CheckOverlap(S);                // 检查是否与其他机起点/终点重合
-    Msg("%s moved to (%.0f, %.0f, %.0f)", D[S].name, px, py, pz);
+    Msg("%s moved to (%.0f, %.0f, %.0f)", D[S].name, p.x, p.y, p.z);
     PrintDrone(&D[S]);              // 终端实时显示新坐标
+}
+
+/* ================================================================
+ *  InitDrone() - 用默认字段初始化一架新无人机
+ *
+ *  把内存清零后设置：激活、默认常亮、用户颜色、闪烁初始为亮、
+ *  高度、灯光速度、平滑模式、效果相位，以及起始/当前位置。
+ * ================================================================ */
+static void InitDrone(Drone* d, Pt sp, int index) {
+    memset(d, 0, sizeof(Drone));            // 全部内存清零（安全初始化）
+    d->act    = 1;                          // 激活
+    d->light  = L_ON;                       // 默认常亮
+    d->color  = ic;                         // 使用用户选的颜色
+    d->bon    = 1;                          // 闪烁初始为亮
+    d->h      = sp.z;                       // 保存高度
+    d->espeed = 1.0f;                       // 灯光效果速度倍率默认1
+    d->pm     = PM_EASED;                   // 轨迹平滑模式默认缓动
+    d->ph     = (float)index;               // 效果相位 = 序号（追逐灯用）
+
+    d->start = sp;                          // 设置起始位置
+    d->pos   = sp;                          // 当前位置=起始位置
 }
 
 /* ================================================================
@@ -107,18 +133,7 @@ void MakeDrone(void) {
     }
 
     Drone* d = &D[N];                       // 取第N个槽位的指针
-    memset(d, 0, sizeof(Drone));            // 全部内存清零（安全初始化）
-    d->act   = 1;                           // 激活
-    d->light = L_ON;                        // 默认常亮
-    d->color = ic;                          // 使用用户选的颜色
-    d->bon   = 1;                           // 闪烁初始为亮
-    d->h     = pz;                          // 保存高度
-    d->espeed = 1.0f;                       // 灯光效果速度倍率默认1
-    d->pm     = PM_EASED;                   // 轨迹平滑模式默认缓动
-    d->ph     = (float)N;                   // 效果相位 = 序号（追逐灯用）
-
-    d->start = sp;                          // 设置起始位置
-    d->pos   = d->start;                    // 当前位置=起始位置
+    InitDrone(d, sp, N);                    // 填默认字段
 
     snprintf(d->name, MAX_NAME, "D-%d", N + 1); // 生成名称 "D-1", "D-2"...
     N++;                                    // 总数+1
@@ -162,56 +177,112 @@ static Color ColorMul(Color c, float k) {
 }
 
 /* ================================================================
+ *  RcPulse() - 呼吸灯颜色：亮度按 sin 在 0.2~1.0 之间缓慢起伏
+ * ================================================================ */
+static Color RcPulse(Drone* d) {
+    float k = 0.5f + 0.5f * sinf(d->ph);        // -1~1 → 0~1
+    float t = 0.2f + 0.8f * k;                  // 映射到 0.2~1.0
+    return ColorMul(LC[d->color], t);
+}
+
+/* ================================================================
+ *  RcChase() - 追逐灯颜色：相位波形超过阈值时点亮，否则熄灭
+ *
+ *  各机相位不同，亮灭先后错开，形成跑马灯效果。
+ * ================================================================ */
+static Color RcChase(Drone* d) {
+    float k = 0.5f + 0.5f * sinf(d->ph);
+    return (k > 0.4f) ? LC[d->color] : (Color){35, 35, 45, 255};
+}
+
+/* ================================================================
+ *  RcRainbow() - 彩虹灯颜色：色相随相位循环
+ * ================================================================ */
+static Color RcRainbow(Drone* d) {
+    float h = fmodf(d->ph * 0.5f, 1.0f);        // 相位 → 色相(0~1)
+    return Hsv2Rgb(h, 1.0f, 1.0f);
+}
+
+/* ================================================================
+ *  RcLight() - 根据灯光模式计算基础渲染颜色
+ * ================================================================ */
+static Color RcLight(Drone* d) {
+    switch (d->light) {                     // 根据灯光模式
+        case L_OFF:
+            return (Color){50, 50, 60, 255};    // 灯灭→暗灰色
+        case L_ON:
+            return LC[d->color];                // 常亮→使用设定的颜色
+        case L_BLINK:
+            /* 闪烁：bon为true显示灯光色，false显示暗色 */
+            return d->bon ? LC[d->color] : (Color){35, 35, 45, 255};
+        case L_PULSE:
+            return RcPulse(d);                  // 呼吸
+        case L_CHASE:
+            return RcChase(d);                  // 追逐
+        case L_RAINBOW:
+            return RcRainbow(d);                // 彩虹
+        default:
+            return GRAY;                        // 兜底→灰色
+    }
+}
+
+/* ================================================================
+ *  RcHighlight() - 把选中无人机的颜色加亮30%
+ * ================================================================ */
+static Color RcHighlight(Color b) {
+    b.r = (unsigned char)(b.r * 1.3f > 255 ? 255 : b.r * 1.3f);
+    b.g = (unsigned char)(b.g * 1.3f > 255 ? 255 : b.g * 1.3f);
+    b.b = (unsigned char)(b.b * 1.3f > 255 ? 255 : b.b * 1.3f);
+    return b;
+}
+
+/* ================================================================
  *  RC() - 获取无人机的3D渲染颜色（Render Color）
  *
  *  根据灯光模式（灭/亮/闪烁/呼吸/追逐/彩虹）和选中状态决定显示颜色。
  *  选中的无人机会加亮30%。
  * ================================================================ */
 Color RC(Drone* d) {
-    Color b;                                // 声明返回颜色
-
-    switch (d->light) {                     // 根据灯光模式
-        case L_OFF:
-            b = (Color){50, 50, 60, 255};   // 灯灭→暗灰色
-            break;
-        case L_ON:
-            b = LC[d->color];               // 常亮→使用设定的颜色
-            break;
-        case L_BLINK:
-            /* 闪烁：bon为true显示灯光色，false显示暗色 */
-            b = d->bon ? LC[d->color] : (Color){35, 35, 45, 255};
-            break;
-        case L_PULSE: {
-            /* 呼吸：亮度按 sin 在 0.2~1.0 之间缓慢起伏 */
-            float k = 0.5f + 0.5f * sinf(d->ph);        // -1~1 → 0~1
-            float t = 0.2f + 0.8f * k;                  // 映射到 0.2~1.0
-            b = ColorMul(LC[d->color], t);
-            break;
-        }
-        case L_CHASE: {
-            /* 追逐：相位波形超过阈值时点亮，否则熄灭（各机相位不同形成跑马灯） */
-            float k = 0.5f + 0.5f * sinf(d->ph);
-            b = (k > 0.4f) ? LC[d->color] : (Color){35, 35, 45, 255};
-            break;
-        }
-        case L_RAINBOW: {
-            /* 彩虹：色相随相位循环，Hsv2Rgb 把色相转成 RGB 颜色 */
-            float h = fmodf(d->ph * 0.5f, 1.0f);        // 相位 → 色相(0~1)
-            b = Hsv2Rgb(h, 1.0f, 1.0f);
-            break;
-        }
-        default:
-            b = GRAY;                       // 兜底→灰色
-    }
-
-    /* 选中的无人机颜色加亮30%（每个分量×1.3，不超过255） */
-    if (d->sel) {
-        b.r = (unsigned char)(b.r * 1.3f > 255 ? 255 : b.r * 1.3f);
-        b.g = (unsigned char)(b.g * 1.3f > 255 ? 255 : b.g * 1.3f);
-        b.b = (unsigned char)(b.b * 1.3f > 255 ? 255 : b.b * 1.3f);
-    }
-
+    Color b = RcLight(d);                   // 先按灯光模式算基础色
+    if (d->sel) b = RcHighlight(b);         // 选中再加亮30%
     return b;
+}
+
+/* ================================================================
+ *  DdPath() - 绘制一架无人机的路径（编辑模式）
+ *
+ *  画黄色路径点小球 + 相邻点连线，再用蓝色采样线预览平滑后的
+ *  真实飞行轨迹，让用户在编辑时就能看到回放会走的路径。
+ * ================================================================ */
+static void DdPath(Drone* d) {
+    if (d->wc <= 0) return;                 // 没有航点则不画
+
+    /* 黄色路径点和相邻连线 */
+    for (int i = 0; i < d->wc; i++) {
+        /* 路径点小球（黄色） */
+        DrawSphere((Vector3){d->wp[i].p.x, d->wp[i].p.z, d->wp[i].p.y},
+                   DR * 0.7f, Ye);
+
+        /* 上一个点到当前点的连线（第一个路径点的"上一个"是起点） */
+        Pt pr = (i == 0) ? d->start : d->wp[i - 1].p;
+        DrawLine3D((Vector3){pr.x, pr.z, pr.y},
+                   (Vector3){d->wp[i].p.x, d->wp[i].p.z, d->wp[i].p.y},
+                   Fade(Ye, 0.5f));
+    }
+
+    /* 平滑路径预览：按这架无人机自己的 pm 采样画出实际飞行轨迹（蓝色）
+     * 缓动 = 直线+缓动，样条 = 平滑曲线，
+     * 让用户在编辑时就能看到回放会走的真实路径。 */
+    float L = PathLen(d);                   // 总长
+    int   n = 48;                           // 采样段数（越多越平滑）
+    Pt    prev = d->start;
+    for (int k = 1; k <= n; k++) {
+        float s = L * k / n;                // 等距采样点
+        Pt    p = DronePosAt(d, s);         // 用共享函数采样位置
+        DrawLine3D((Vector3){prev.x, prev.z, prev.y},
+                   (Vector3){p.x, p.z, p.y}, Fade(Bl, 0.6f));
+        prev = p;
+    }
 }
 
 /* ================================================================
@@ -240,34 +311,19 @@ void DD(Drone* d) {
         DrawCircle3D((Vector3){p.x, p.z, p.y}, DR * 2.0f,
                      (Vector3){0, 1, 0}, 0, Bl);
 
-    /* 编辑模式下：绘制黄色路径点和连线 */
-    if (M == M_EDIT && d->wc > 0) {
-        for (int i = 0; i < d->wc; i++) {
-            /* 路径点小球（黄色） */
-            DrawSphere((Vector3){d->wp[i].p.x, d->wp[i].p.z, d->wp[i].p.y},
-                       DR * 0.7f, Ye);
+    /* 编辑模式下：绘制路径点和连线 */
+    if (M == M_EDIT)
+        DdPath(d);
+}
 
-            /* 上一个点到当前点的连线（第一个路径点的"上一个"是起点） */
-            Pt pr = (i == 0) ? d->start : d->wp[i - 1].p;
-            DrawLine3D((Vector3){pr.x, pr.z, pr.y},
-                       (Vector3){d->wp[i].p.x, d->wp[i].p.z, d->wp[i].p.y},
-                       Fade(Ye, 0.5f));
-        }
-
-        /* 平滑路径预览：按这架无人机自己的 pm 采样画出实际飞行轨迹（蓝色）
-         * 缓动 = 直线+缓动，样条 = 平滑曲线，
-         * 让用户在编辑时就能看到回放会走的真实路径。 */
-        float L = PathLen(d);                   // 总长
-        int   n = 48;                           // 采样段数（越多越平滑）
-        Pt    prev = d->start;
-        for (int k = 1; k <= n; k++) {
-            float s = L * k / n;                // 等距采样点
-            Pt    p = DronePosAt(d, s);         // 用共享函数采样位置
-            DrawLine3D((Vector3){prev.x, prev.z, prev.y},
-                       (Vector3){p.x, p.z, p.y}, Fade(Bl, 0.6f));
-            prev = p;
-        }
-    }
+/* ================================================================
+ *  ResetDrone() - 重置一架无人机的回放状态（回到起点、清进度）
+ * ================================================================ */
+static void ResetDrone(Drone* d) {
+    d->pos   = d->start;                    // 位置→起点
+    d->ci    = 0;                           // 路径索引→0
+    d->fin   = 0;                           // 标记未完成
+    d->flown = 0;                           // 已飞距离→0
 }
 
 /* ================================================================
@@ -276,12 +332,9 @@ void DD(Drone* d) {
  *  所有无人机回到起点，重置路径进度，停止播放。
  * ================================================================ */
 void Rst(void) {
-    for (int i = 0; i < N; i++) {           // 遍历所有无人机
-        D[i].pos   = D[i].start;            // 位置→起点
-        D[i].ci    = 0;                     // 路径索引→0
-        D[i].fin   = 0;                     // 标记未完成
-        D[i].flown = 0;                     // 已飞距离→0
-    }
+    for (int i = 0; i < N; i++)             // 遍历所有无人机
+        ResetDrone(&D[i]);                  // 重置回放状态
+
     play  = false;                          // 停止播放
     pause = false;                          // 取消暂停
     prog  = 0;                              // 进度归零
@@ -300,9 +353,9 @@ void Rst(void) {
  *  参数:
  *    dt - 帧时间间隔（秒），保证不同帧率下移动速度一致
  * ================================================================ */
-void Upd(float dt) {
-    if (!play || pause) return;             // 没在播放或暂停了→不更新
-
+/* AdvanceDrones() - 让每架无人机沿路径前进一帧
+ * 返回已完成飞行的无人机数量。 */
+static int AdvanceDrones(float dt) {
     int done = 0;                           // 已完成飞行的无人机计数
 
     for (int i = 0; i < N; i++) {
@@ -325,7 +378,12 @@ void Upd(float dt) {
         d->pos = DronePosAt(d, d->flown);
     }
 
-    /* 计算播放进度：每架无人机"已飞比例"的平均值（0.0 ~ 1.0） */
+    return done;
+}
+
+/* ComputeProgress() - 计算播放进度
+ * 取每架无人机"已飞比例"的平均值（0.0 ~ 1.0）。 */
+static float ComputeProgress(void) {
     float total = 0, cur = 0;
     for (int i = 0; i < N; i++) {
         if (!D[i].act) continue;
@@ -334,7 +392,14 @@ void Upd(float dt) {
         total += 1.0f;
         cur   += D[i].flown / L;                             // 该机进度比例
     }
-    prog = total > 0 ? cur / total : 0;     // 防止除零
+    return total > 0 ? cur / total : 0;     // 防止除零
+}
+
+void Upd(float dt) {
+    if (!play || pause) return;             // 没在播放或暂停了→不更新
+
+    int done = AdvanceDrones(dt);           // 推进所有无人机
+    prog = ComputeProgress();               // 更新播放进度
 
     /* 全部完成→结束播放 */
     if (done >= N) {
@@ -360,41 +425,55 @@ static float Clampf(float v, float lo, float hi) {
     return v;
 }
 
+/* FormTargetCircle() - 圆形队形目标位置：围绕地面中心等角分布 */
+static void FormTargetCircle(Pt out[MAX_DRONES]) {
+    float cx = GROUND / 2;                  // 圆心 X（水平）
+    float cy = GROUND / 2;                  // 圆心 Y（水平）
+    float R  = 3.0f + N * 0.6f;             // 半径随数量增大，避免挤在一起
+    if (R > GROUND / 2 - 1) R = GROUND / 2 - 1;
+    float h  = 5.0f;                        // 飞行高度（Z 轴）
+
+    for (int i = 0; i < N; i++) {
+        float a = (float)i / N * 2.0f * PI;     // 等角分布（0~2π）
+        out[i] = (Pt){
+            Clampf(cx + cosf(a) * R, 0.5f, GROUND - 0.5f),   // X
+            Clampf(cy + sinf(a) * R, 0.5f, GROUND - 0.5f),   // Y（水平）
+            h                                                 // Z（高度）
+        };
+    }
+}
+
+/* FormTargetLine() - 直线队形目标位置：沿 X 轴等距排开 */
+static void FormTargetLine(Pt out[MAX_DRONES]) {
+    float spacing = (N <= 1) ? 0 : (GROUND - 2) / (N - 1);
+    float h = 5.0f, y = GROUND / 2;         // 高度统一、Y 固定在中央
+
+    for (int i = 0; i < N; i++)
+        out[i] = (Pt){ Clampf(1.0f + i * spacing, 0.5f, GROUND - 0.5f), y, h };
+}
+
+/* FormTargetGrid() - 网格队形目标位置：接近正方形的栅格 */
+static void FormTargetGrid(Pt out[MAX_DRONES]) {
+    int cols = (int)ceilf(sqrtf((float)N));
+    int rows = (N + cols - 1) / cols;
+    float h  = 5.0f;                        // 飞行高度（Z 轴）
+    float gx = GROUND / (cols + 1);         // X 方向格子间距
+    float gy = GROUND / (rows + 1);         // Y 方向格子间距
+
+    for (int i = 0; i < N; i++) {
+        int c = i % cols, r = i / cols;
+        out[i] = (Pt){ gx * (c + 1), gy * (r + 1), h };
+    }
+}
+
 /* FormTarget() - 计算所有无人机在某种队形下的目标位置（只算不改）
  *   type: 0=圆形 1=直线 2=网格
  *   out : 输出数组，out[i] = 第 i 架无人机的目标坐标
  */
 static void FormTarget(int type, Pt out[MAX_DRONES]) {
-    if (type == 0) {                        // 圆形：围绕地面中心等角分布
-        float cx = GROUND / 2;              // 圆心 X（水平）
-        float cy = GROUND / 2;              // 圆心 Y（水平）
-        float R  = 3.0f + N * 0.6f;         // 半径随数量增大，避免挤在一起
-        if (R > GROUND / 2 - 1) R = GROUND / 2 - 1;
-        float h  = 5.0f;                    // 飞行高度（Z 轴）
-        for (int i = 0; i < N; i++) {
-            float a = (float)i / N * 2.0f * PI;   // 等角分布（0~2π）
-            out[i] = (Pt){
-                Clampf(cx + cosf(a) * R, 0.5f, GROUND - 0.5f),   // X
-                Clampf(cy + sinf(a) * R, 0.5f, GROUND - 0.5f),   // Y（水平）
-                h                                                 // Z（高度）
-            };
-        }
-    } else if (type == 1) {                 // 直线：沿 X 轴等距排开
-        float spacing = (N <= 1) ? 0 : (GROUND - 2) / (N - 1);
-        float h = 5.0f, y = GROUND / 2;     // 高度统一、Y 固定在中央
-        for (int i = 0; i < N; i++)
-            out[i] = (Pt){ Clampf(1.0f + i * spacing, 0.5f, GROUND - 0.5f), y, h };
-    } else {                                // 网格：接近正方形的栅格
-        int cols = (int)ceilf(sqrtf((float)N));
-        int rows = (N + cols - 1) / cols;
-        float h  = 5.0f;                    // 飞行高度（Z 轴）
-        float gx = GROUND / (cols + 1);     // X 方向格子间距
-        float gy = GROUND / (rows + 1);     // Y 方向格子间距
-        for (int i = 0; i < N; i++) {
-            int c = i % cols, r = i / cols;
-            out[i] = (Pt){ gx * (c + 1), gy * (r + 1), h };
-        }
-    }
+    if (type == 0)      FormTargetCircle(out);   // 圆形
+    else if (type == 1) FormTargetLine(out);     // 直线
+    else                FormTargetGrid(out);     // 网格
 }
 
 /* FormReset() - 编队变换的公共前置：重置飞行状态 */
@@ -507,6 +586,17 @@ void MakeDemo(void) {
 }
 
 /* ================================================================
+ *  OffsetDroneX() - 把一架无人机的整条路径沿 X 轴偏移 dx 米
+ *
+ *  起点和所有航点一起平移，保持路径形状不变。
+ * ================================================================ */
+static void OffsetDroneX(Drone* d, float dx) {
+    d->start.x += dx;
+    for (int w = 0; w < d->wc; w++)
+        d->wp[w].p.x += dx;
+}
+
+/* ================================================================
  *  DuplicateDrone() - 复制第 i 架无人机（含航点），新机整体偏移
  *
  *  复制出的新机与原机颜色、灯光、航点轨迹完全一致，
@@ -522,9 +612,7 @@ void DuplicateDrone(int i) {
     *d = D[i];                                  // 整架复制（含航点）
 
     /* 整条路径沿 X 偏移 1 米，避免与原机重叠 */
-    d->start.x += 1.0f;
-    for (int w = 0; w < d->wc; w++)
-        d->wp[w].p.x += 1.0f;
+    OffsetDroneX(d, 1.0f);
 
     snprintf(d->name, MAX_NAME, "D-%d", N + 1); // 重新命名
     d->ph = (float)N;                           // 追逐效果相位 = 新序号

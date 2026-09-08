@@ -98,6 +98,35 @@ float Dist3(Pt a, Pt b) {
 }
 
 /* ================================================================
+ *  通用插值小工具
+ *
+ *  下面三个函数是轨迹插值的底层砖块，供 DronePosAt() 复用：
+ *  把"直线 + 缓动"的段内插值拆成钳制、一维插值、三维插值三步，
+ *  逻辑和原来完全一样，只是更短更易读。
+ * ================================================================ */
+
+/* ClampF() - 把 v 限制在 [lo, hi] 闭区间内（越界就夹到端点） */
+static float ClampF(float v, float lo, float hi) {
+    if (v < lo) return lo;
+    if (v > hi) return hi;
+    return v;
+}
+
+/* LerpF() - 一维线性插值：a + (b - a) * t（t=0 返回 a，t=1 返回 b） */
+static float LerpF(float a, float b, float t) {
+    return a + (b - a) * t;
+}
+
+/* LerpPt() - 三维点线性插值：三个分量各自做一维插值 */
+static Pt LerpPt(Pt a, Pt b, float t) {
+    return (Pt){
+        LerpF(a.x, b.x, t),
+        LerpF(a.y, b.y, t),
+        LerpF(a.z, b.z, t)
+    };
+}
+
+/* ================================================================
  *  PathLen() - 完整路径总长度
  *
  *  路径 = 起点 → 第1个航点 → 第2个航点 → ...，逐段累加。
@@ -155,10 +184,8 @@ Pt DronePosAt(const Drone* d, float s) {
         if (s <= L || w == d->wc - 1) {
             float u;
             if (L < 1e-4f) u = 1.0f;    // 零长度段保护（避免除0）
-            else {
-                u = s / L;              // 段内比例 0~1
-                if (u > 1.0f) u = 1.0f;
-            }
+            else
+                u = ClampF(s / L, 0.0f, 1.0f);  // 段内比例，钳制到 0~1
 
             /* 样条模式：取四个控制点，用 Catmull-Rom 得到曲线上的点 */
             if (mode == PM_SPLINE)
@@ -168,11 +195,8 @@ Pt DronePosAt(const Drone* d, float s) {
                                   PathPoint(d, seg + 2),    // 后一个点
                                   u);
 
-            /* 直线 + 缓动模式：起点 + 方向分量 × 平滑比例 */
-            float e = Ease(u, mode);
-            return (Pt){ cur.x + (next.x - cur.x) * e,
-                         cur.y + (next.y - cur.y) * e,
-                         cur.z + (next.z - cur.z) * e };
+            /* 直线 + 缓动模式：在段起点/终点之间做线性插值 */
+            return LerpPt(cur, next, Ease(u, mode));
         }
 
         s -= L;                         // 减去这段长度，进入下一段

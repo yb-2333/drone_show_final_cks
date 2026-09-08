@@ -45,20 +45,136 @@ int In(Rectangle r) {
 }
 
 /* ================================================================
- *  Btn() - 绘制按钮并检测点击
- *
- *  做两件事：1) 画按钮（背景+边框+文字） 2) 检测是否被点击
- *  返回: 1（被点击了）或 0（没被点击）
+ *  BtnDraw() - 绘制按钮外观（背景 + 边框 + 居中文字）
  * ================================================================ */
-int Btn(Rectangle r, const char* t, Color c) {
+static void BtnDraw(Rectangle r, const char* t, Color c) {
     DrawRectangleRec(r, c);                     // 画按钮背景填充矩形
     DrawRectangleLinesEx(r, 1, Br);             // 画边框线（1像素宽，深灰色）
     int tw = MeasureText(t, 18);                // 测量文字宽度（字号18），用于居中计算
     /* 水平居中：矩形中心X - 文字宽度的一半；垂直居中：矩形中心Y - 字号的一半 */
     DrawText(t, (int)(r.x + r.width / 2 - tw / 2),
                 (int)(r.y + r.height / 2 - 9), 18, Wh);
+}
+
+/* ================================================================
+ *  Btn() - 绘制按钮并检测点击
+ *
+ *  做两件事：1) 画按钮（背景+边框+文字） 2) 检测是否被点击
+ *  返回: 1（被点击了）或 0（没被点击）
+ * ================================================================ */
+int Btn(Rectangle r, const char* t, Color c) {
+    BtnDraw(r, t, c);                           // 先画外观
     /* 鼠标在矩形内 并且 鼠标左键刚被按下 → 返回1（被点击） */
     return In(r) && IsMouseButtonPressed(MOUSE_LEFT_BUTTON);
+}
+
+/* ================================================================
+ *  文字输入框 Txt() 的辅助函数
+ *
+ *  Txt() 是 UI 里最复杂的组件，这里把它拆成四个小步骤：
+ *    TxtId     - 生成唯一ID
+ *    TxtFocus  - 鼠标点击激活/取消激活 + 设置全局焦点标记
+ *    TxtInput  - 键盘输入处理
+ *    TxtCursor - 闪烁光标
+ * ================================================================ */
+
+/* activeIdx 记录当前被激活的输入框ID（-1=没有）。
+ * 用 static 让它在多次调用之间保持值，确保只有一个输入框接收键盘输入。 */
+static int activeIdx = -1;
+
+/* TxtId() - 用 buf 指针的地址生成唯一ID（取低12位），区分不同的输入框 */
+static int TxtId(const char* buf) {
+    return (int)((long long)buf & 0xFFF);
+}
+
+/* TxtFocus() - 处理鼠标点击激活/取消激活，并更新全局 txtFocus */
+static void TxtFocus(Rectangle r, int id) {
+    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {      // 鼠标左键按下
+        if (In(r))                          // 点在当前输入框内 → 激活它
+            activeIdx = id;
+        else if (activeIdx == id)           // 点在外部且当前是激活的 → 取消激活
+            activeIdx = -1;
+    }
+
+    if (activeIdx == id) txtFocus = 1;      // 告诉系统"有输入框正在接收键盘输入"
+                                            // 用于阻止快捷键干扰打字
+}
+
+/* TxtChars() - 处理普通字符输入（可打印ASCII字符：空格~波浪号）
+ * 返回 1 表示内容发生了变化。 */
+static int TxtChars(char* buf, int max) {
+    int changed = 0;                        // 标记内容是否改变
+
+    int key = GetCharPressed();             // 获取按下的字符码
+    while (key > 0) {                       // 可能一帧内按了多个键，全部处理
+        if (key >= 32 && key <= 126) {      // 只接受可打印字符
+            int len = (int)strlen(buf);
+            if (len < max - 1) {            // 留一个位置给字符串结束符 '\0'
+                buf[len] = (char)key;       // 追加字符到末尾
+                buf[len + 1] = 0;           // 添加结束符
+                changed = 1;
+            }
+        }
+        key = GetCharPressed();             // 继续获取下一个待处理按键
+    }
+    return changed;
+}
+
+/* TxtBackspace() - 处理退格键，返回 1 表示删除了一个字符 */
+static int TxtBackspace(char* buf) {
+    if (!IsKeyPressed(KEY_BACKSPACE)) return 0;     // 没按退格键
+
+    int len = (int)strlen(buf);
+    if (len <= 0) return 0;                 // 没有字符可删
+
+    buf[len - 1] = 0;                       // 将最后一个字符替换为'\0'
+    return 1;
+}
+
+/* TxtMinus() - 处理负号键，返回 1 表示输入了负号 */
+static int TxtMinus(char* buf) {
+    if (!IsKeyPressed(KEY_MINUS) && !IsKeyPressed(KEY_KP_SUBTRACT))
+        return 0;                           // 没按负号键
+
+    int len = (int)strlen(buf);
+    if (len != 0) return 0;                 // 只有输入框为空时才能输入负号
+
+    buf[0] = '-';
+    buf[1] = 0;
+    return 1;
+}
+
+/* TxtDecimal() - 处理小数点键，返回 1 表示输入了小数点 */
+static int TxtDecimal(char* buf, int max) {
+    if (!IsKeyPressed(KEY_PERIOD) && !IsKeyPressed(KEY_KP_DECIMAL))
+        return 0;                           // 没按小数点键
+
+    int len = (int)strlen(buf);
+    if (len >= max - 1 || strchr(buf, '.')) return 0;  // 没空间 或 已有小数点
+
+    buf[len] = '.';
+    buf[len + 1] = 0;
+    return 1;
+}
+
+/* TxtInput() - 处理键盘输入（打字/退格/负号/小数点），返回内容是否变化 */
+static int TxtInput(char* buf, int max) {
+    int changed = 0;                        // 标记内容是否改变
+    changed |= TxtChars(buf, max);          // 普通字符输入
+    changed |= TxtBackspace(buf);           // 退格删除
+    changed |= TxtMinus(buf);               // 负号
+    changed |= TxtDecimal(buf, max);        // 小数点
+    return changed;
+}
+
+/* TxtCursor() - 绘制闪烁光标（GetTime()×2 让光标每秒闪烁2次） */
+static void TxtCursor(Rectangle r, const char* buf) {
+    if (((int)(GetTime() * 2) % 2) == 0) {  // 偶数半秒显示光标
+        int tw = MeasureText(buf, 16);       // 文字像素宽度
+        DrawText("|",                        // 竖线作为光标
+                 (int)(r.x + 5 + tw),        // 位置紧跟文字末尾
+                 (int)(r.y + r.height / 2 - 8), 16, Bl);
+    }
 }
 
 /* ================================================================
@@ -91,80 +207,13 @@ int Txt(Rectangle r, char* buf, int max, const char* label) {
     DrawText(buf, (int)(r.x + 4),                        // 已输入的文字
              (int)(r.y + r.height / 2 - 8), 16, Wh);
 
-    /* ---- 焦点管理 ---- */
-    /* activeIdx 是 static 局部变量——在函数调用之间保持值不变。
-       它记录当前被激活的输入框ID，确保只有一个输入框接收键盘输入。 */
-    static int activeIdx = -1;              // -1 表示没有输入框被激活
+    /* 焦点管理 + 键盘输入 + 光标 */
+    int id = TxtId(buf);                    // 生成唯一ID
+    TxtFocus(r, id);                        // 点击激活/取消激活
 
-    /* 用 buf 指针的地址生成唯一ID（取低12位），区分不同的输入框 */
-    int id = (int)((long long)buf & 0xFFF);
-
-    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {      // 鼠标左键按下
-        if (In(r))                          // 点在当前输入框内 → 激活它
-            activeIdx = id;
-        else if (activeIdx == id)           // 点在外部且当前是激活的 → 取消激活
-            activeIdx = -1;
-    }
-
-    if (activeIdx == id) txtFocus = 1;      // 告诉系统"有输入框正在接收键盘输入"
-                                            // 用于阻止快捷键干扰打字
-
-    /* ---- 键盘输入处理 ---- */
     if (activeIdx == id) {                  // 只有激活的输入框才处理按键
-        int changed = 0;                    // 标记内容是否改变
-
-        /* 处理普通字符输入（可打印ASCII字符：空格~波浪号） */
-        int key = GetCharPressed();         // 获取按下的字符码
-        while (key > 0) {                   // 可能一帧内按了多个键，全部处理
-            if (key >= 32 && key <= 126) {  // 只接受可打印字符
-                int len = (int)strlen(buf);
-                if (len < max - 1) {        // 留一个位置给字符串结束符 '\0'
-                    buf[len] = (char)key;   // 追加字符到末尾
-                    buf[len + 1] = 0;       // 添加结束符
-                    changed = 1;
-                }
-            }
-            key = GetCharPressed();         // 继续获取下一个待处理按键
-        }
-
-        /* 退格键：删除最后一个字符 */
-        if (IsKeyPressed(KEY_BACKSPACE)) {
-            int len = (int)strlen(buf);
-            if (len > 0) {                  // 至少有一个字符才删
-                buf[len - 1] = 0;           // 将最后一个字符替换为'\0'
-                changed = 1;
-            }
-        }
-
-        /* 负号键：在空输入框开头输入负号 */
-        if (IsKeyPressed(KEY_MINUS) || IsKeyPressed(KEY_KP_SUBTRACT)) {
-            int len = (int)strlen(buf);
-            if (len == 0) {                 // 只有输入框为空时才能输入负号
-                buf[0] = '-';
-                buf[1] = 0;
-                changed = 1;
-            }
-        }
-
-        /* 小数点键：输入小数点（每个数字只能有一个小数点） */
-        if (IsKeyPressed(KEY_PERIOD) || IsKeyPressed(KEY_KP_DECIMAL)) {
-            int len = (int)strlen(buf);
-            if (len < max - 1 && !strchr(buf, '.')) {  // 有空间 且 没小数点
-                buf[len] = '.';
-                buf[len + 1] = 0;
-                changed = 1;
-            }
-        }
-
-        /* ---- 闪烁光标 ---- */
-        /* GetTime() 是程序运行秒数，乘以2让光标每秒闪烁2次 */
-        if (((int)(GetTime() * 2) % 2) == 0) {  // 偶数半秒显示光标
-            int tw = MeasureText(buf, 16);       // 文字像素宽度
-            DrawText("|",                        // 竖线作为光标
-                     (int)(r.x + 5 + tw),        // 位置紧跟文字末尾
-                     (int)(r.y + r.height / 2 - 8), 16, Bl);
-        }
-
+        int changed = TxtInput(buf, max);   // 键盘输入
+        TxtCursor(r, buf);                  // 闪烁光标
         return changed;                     // 返回内容是否变化
     }
     return 0;                               // 未激活，无变化
@@ -178,19 +227,12 @@ void Sep(int x, int y, int w) {
 }
 
 /* ================================================================
- *  Sld() - 滑块控件（Show模式调节播放速度）
+ *  SldDraw() - 绘制滑块的外观
  *
- *  绘制内容：标签文字 + 滑轨背景 + 已填充部分 + 拖动手柄
- *  返回: 用户调整后的新值（没拖动则返回原值v）
- *
- *  参数:
- *    r  - 滑块区域
- *    v  - 当前值
- *    lo - 最小值
- *    hi - 最大值
- *    f  - 标签格式字符串，如 "Speed: %.1fx"
+ *  画标签文字 + 滑轨背景 + 已填充部分 + 拖动手柄。
+ *  把当前值 v 归一化到 0~1，算出手柄在轨道上的 X 坐标。
  * ================================================================ */
-float Sld(Rectangle r, float v, float lo, float hi, const char* f) {
+static void SldDraw(Rectangle r, float v, float lo, float hi, const char* f) {
     /* 画标签文字（如 "Speed: 2.0x"） */
     DrawText(TextFormat(f, v), (int)r.x, (int)(r.y - 15), 13, Gr);
 
@@ -208,10 +250,27 @@ float Sld(Rectangle r, float v, float lo, float hi, const char* f) {
 
     /* 画手柄（白色小方块） */
     DrawRectangle((int)(hx - 5), (int)r.y, 10, (int)r.height, Wh);
+}
+
+/* ================================================================
+ *  Sld() - 滑块控件（Show模式调节播放速度）
+ *
+ *  绘制内容：标签文字 + 滑轨背景 + 已填充部分 + 拖动手柄
+ *  返回: 用户调整后的新值（没拖动则返回原值v）
+ *
+ *  参数:
+ *    r  - 滑块区域
+ *    v  - 当前值
+ *    lo - 最小值
+ *    hi - 最大值
+ *    f  - 标签格式字符串，如 "Speed: %.1fx"
+ * ================================================================ */
+float Sld(Rectangle r, float v, float lo, float hi, const char* f) {
+    SldDraw(r, v, lo, hi, f);               // 先画外观
 
     /* 交互：鼠标按住时拖动 */
     if (IsMouseButtonDown(MOUSE_LEFT_BUTTON) && In(r)) {
-        t = (GetMousePosition().x - r.x) / r.width;     // 根据鼠标位置重算比例
+        float t = (GetMousePosition().x - r.x) / r.width;   // 根据鼠标位置重算比例
         if (t < 0) t = 0;                               // 限制最小值
         if (t > 1) t = 1;                               // 限制最大值
         return lo + t * (hi - lo);                      // 比例→实际值

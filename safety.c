@@ -56,6 +56,16 @@ void SetAlert(const char* fmt, ...) {
 }
 
 /* ================================================================
+ *  DroneEnd() - 取一架无人机的终点坐标
+ *
+ *  终点 = 最后一个航点；如果没有航点，终点就等于起点。
+ * ================================================================ */
+static Pt DroneEnd(const Drone* d) {
+    if (d->wc > 0) return d->wp[d->wc - 1].p;   // 有航点→最后一个航点
+    return d->start;                            // 无航点→起点
+}
+
+/* ================================================================
  *  CheckOverlap() - 检查第 i 架无人机的起点/终点是否与其他机重合
  *
  *  课程要求"不同无人机起点和终点不能重复，不然就相撞"。
@@ -68,14 +78,13 @@ int CheckOverlap(int i) {
     if (i < 0 || i >= N || !D[i].act) return 0;
 
     Pt s1 = D[i].start;                                 // 本机起点
-    Pt e1 = (D[i].wc > 0) ? D[i].wp[D[i].wc - 1].p      // 本机终点=最后一个航点
-                          : D[i].start;                 // 没航点则终点=起点
+    Pt e1 = DroneEnd(&D[i]);                            // 本机终点
 
     for (int j = 0; j < N; j++) {
         if (j == i || !D[j].act) continue;              // 跳过自己和不存在
 
         Pt s2 = D[j].start;
-        Pt e2 = (D[j].wc > 0) ? D[j].wp[D[j].wc - 1].p : D[j].start;
+        Pt e2 = DroneEnd(&D[j]);
 
         if (Dist3(s1, s2) < SAFE_DIST) {                // 起点重合
             SetAlert("%s and %s start too close (%.2f m) - will collide!",
@@ -97,8 +106,9 @@ int CheckOverlap(int i) {
  *  检查无人机"当前时刻"的实际位置。发现越界或碰撞就设置告警弹窗
  *  并返回 1。返回 0 = 一切正常。
  * ================================================================ */
-int LiveCheck(void) {
-    /* ---- 1. 越界检测（当前实时位置） ---- */
+/* LiveCheckBounds() - 检查所有无人机当前位置是否越界。
+ * 发现越界就填写告警并返回 1，否则返回 0。 */
+static int LiveCheckBounds(void) {
     for (int i = 0; i < N; i++) {
         Drone* d = &D[i];
         if (!d->act) continue;
@@ -114,8 +124,12 @@ int LiveCheck(void) {
             return 1;
         }
     }
+    return 0;
+}
 
-    /* ---- 2. 碰撞检测（当前两两距离） ---- */
+/* LiveCheckCollide() - 检查两两无人机是否过近（会相撞）。
+ * 发现过近就填写告警并返回 1，否则返回 0。 */
+static int LiveCheckCollide(void) {
     for (int i = 0; i < N; i++) {
         if (!D[i].act) continue;
         for (int j = i + 1; j < N; j++) {
@@ -130,6 +144,11 @@ int LiveCheck(void) {
             }
         }
     }
-
     return 0;
+}
+
+/* LiveCheck() - 实时安全检测：先查越界，再查碰撞，任一异常即告警 */
+int LiveCheck(void) {
+    if (LiveCheckBounds()) return 1;    // 越界 → 告警
+    return LiveCheckCollide();          // 碰撞 → 告警
 }

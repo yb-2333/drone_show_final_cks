@@ -15,6 +15,134 @@
 #include "drone.h"      // MakeDrone, FormCircle, FormLine, FormGrid, MakeDemo
 
 /* ================================================================
+ *  DrawSetupPanel() 的辅助函数——按区块拆分
+ *
+ *  每个区块负责面板的一小部分，返回绘制结束后的新 Y 坐标。
+ * ================================================================ */
+
+/* DrawCoordInput() - 画一个「标签 + 输入框」的坐标输入单元 */
+static void DrawCoordInput(int x, int y, const char* label, char* buf, Color c) {
+    DrawText(label, x, y + 3, 14, c);           // 标签（红/绿/蓝）
+    Txt((Rectangle){x + 14, (float)y, 60, 24}, buf, 15, "");
+}
+
+/* DrawSetupPosition() - 位置输入区（X/Y/Z 三个输入框） */
+static int DrawSetupPosition(int x, int w, int y) {
+    DrawText("Position:", x, y, 12, Gr);
+    y += 14;
+
+    DrawCoordInput(x,       y, "X", sx, Rd);    // X标签（红色）
+    DrawCoordInput(x + 80,  y, "Y", sy, Gn);    // Y标签（绿色）
+    DrawCoordInput(x + 160, y, "Z", sz, Bl);    // Z标签（蓝色）
+    return y + 30;
+}
+
+/* DrawColorSwatch() - 画一个颜色块（含选中边框与点击处理） */
+static void DrawColorSwatch(int x, int y, int i) {
+    int row = i / 4;                            // 第几行
+    int col = i % 4;                            // 第几列
+    Rectangle cr = { x + col * 52.0f, (float)(y + row * 22), 48, 20 };
+
+    DrawRectangleRec(cr, LC[i]);                // 颜色块
+    if (ic == i)
+        DrawRectangleLinesEx(cr, 2.5f, Wh);     // 选中的加粗白边框
+    else
+        DrawRectangleLinesEx(cr, 1, Br);        // 未选中的普通边框
+    DrawText(LCN[i], (int)cr.x + 4, (int)cr.y + 2, 12, Wh);
+
+    if (In(cr) && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+        ic = i;                                 // 记住颜色（新建无人机用）
+        if (S >= 0 && S < N && D[S].act) {
+            D[S].color = i;                     // 同时改选中无人机颜色
+            PrintDrone(&D[S]);                  // 终端实时显示颜色变化
+        }
+    }
+}
+
+/* DrawSetupColors() - 颜色选择区（8 色，两行四列） */
+static int DrawSetupColors(int x, int w, int y) {
+    DrawText("Color:", x, y, 12, Gr);
+    y += 14;
+
+    for (int i = 0; i < COLOR_COUNT; i++)
+        DrawColorSwatch(x, y, i);               // 逐个画颜色块
+
+    return y + 2 * 22 + 6;                      // 两行高度 + 间距
+}
+
+/* DrawDroneRow() - 画列表里的一行无人机（色块 + 信息 + 行尾删除）
+ * 返回 1 表示这架被删除了（调用方需跳出循环），否则返回 0。 */
+static int DrawDroneRow(int x, int w, int y, int i, Drone* d) {
+    /* 小色块 */
+    Color lc = LC[d->color];
+    DrawRectangle(x + 4, (int)y + 4, 10, 10, lc);
+    DrawRectangleLines(x + 4, (int)y + 4, 10, 10, Wh);
+
+    /* 信息文字 */
+    DrawText(TextFormat("#%d %s (%.0f,%.0f,%.0f)",
+        i + 1, d->name, d->start.x, d->start.y, d->start.z),
+        x + 18, y + 3, 12, d->sel ? Wh : Gr);
+
+    /* 点击行→选中 + 坐标输入框显示该机坐标（不自动切 Edit） */
+    Rectangle row = {x, (float)y, w - 26, 20};
+    if (In(row) && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+        if (S >= 0) D[S].sel = 0;
+        S = i;
+        d->sel = 1;
+        ic = d->color;          // 颜色选择器跳到该机当前颜色
+        FillCoords(d);          // 坐标框实时显示该机坐标
+        PrintDrone(d);          // 终端实时显示该机状态
+    }
+
+    /* 行尾叉号：删除这架无人机 */
+    if (Btn((Rectangle){x + w - 20, (float)y, 20, 20}, "X", Rd)) {
+        DelDrone(i);
+        return 1;               // 已删除 → 通知调用方跳出循环
+    }
+    return 0;
+}
+
+/* DrawSetupList() - 已创建无人机列表（点击行→选中，行尾×→删除） */
+static int DrawSetupList(int x, int w, int y) {
+    DrawText(TextFormat("Drones: %d", N), x, y, 13, Ye);
+    y += 16;
+
+    for (int i = 0; i < N; i++) {
+        if (DrawDroneRow(x, w, y, i, &D[i])) break;  // 删除后跳出
+        y += 20;
+    }
+
+    if (N == 0) {
+        DrawText("No drones yet.", x, y, 12, Gr);
+        y += 20;
+    }
+    return y;
+}
+
+/* DrawSetupFormation() - 编队变换按钮 + 跳转编辑模式 */
+static int DrawSetupFormation(int x, int w, int y) {
+    Sep(x, y, w);
+    y += 6;
+    DrawText("Formation:", x, y, 12, Gr);
+    y += 14;
+
+    float fw = (w - 8) / 3.0f;
+    if (N > 0 && Btn((Rectangle){x, (float)y, fw, 20}, "Circle", Gn)) FormCircle();
+    if (N > 0 && Btn((Rectangle){x + fw + 3, (float)y, fw, 20}, "Line", Gn)) FormLine();
+    if (N > 0 && Btn((Rectangle){x + 2 * (fw + 3), (float)y, fw, 20}, "Grid", Gn)) FormGrid();
+    y += 24;
+
+    Sep(x, y, w);
+    y += 6;
+
+    /* 跳转编辑模式按钮 */
+    if (N > 0 && Btn((Rectangle){x, (float)y, w, 22}, "-> Edit Track (F2)", Bl))
+        M = M_EDIT;
+
+    return y + 28;
+}
+
+/* ================================================================
  *  DrawSetupPanel() - 绘制 Setup 模式面板
  *
  *  参数 x/w/y 由 DrawUI 传入（面板内容区坐标）。
@@ -29,39 +157,10 @@ void DrawSetupPanel(int x, int w, int y) {
     y += 28;
 
     /* 位置输入 */
-    DrawText("Position:", x, y, 12, Gr);
-    y += 14;
+    y = DrawSetupPosition(x, w, y);
 
-    DrawText("X", x,         y + 3, 14, Rd);        // X标签（红色)
-    Txt((Rectangle){x + 14,  (float)y, 60, 24}, sx, 15, "");
-    DrawText("Y", x + 80,    y + 3, 14, Gn);        // Y标签（绿色）
-    Txt((Rectangle){x + 94,  (float)y, 60, 24}, sy, 15, "");
-    DrawText("Z", x + 160,   y + 3, 14, Bl);        // Z标签（蓝色）
-    Txt((Rectangle){x + 174, (float)y, 60, 24}, sz, 15, "");
-    y += 30;
-
-    /* 颜色选择（8 色，两行四列） */
-    DrawText("Color:", x, y, 12, Gr);
-    y += 14;
-    for (int i = 0; i < 8; i++) {
-        int row = i / 4;                            // 第几行
-        int col = i % 4;                            // 第几列
-        Rectangle cr = { x + col * 52.0f, (float)(y + row * 22), 48, 20 };
-        DrawRectangleRec(cr, LC[i]);                // 颜色块
-        if (ic == i)
-            DrawRectangleLinesEx(cr, 2.5f, Wh);     // 选中的加粗白边框
-        else
-            DrawRectangleLinesEx(cr, 1, Br);        // 未选中的普通边框
-        DrawText(LCN[i], (int)cr.x + 4, (int)cr.y + 2, 12, Wh);
-        if (In(cr) && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
-            ic = i;                                 // 记住颜色（新建无人机用）
-            if (S >= 0 && S < N && D[S].act) {
-                D[S].color = i;                     // 同时改选中无人机颜色
-                PrintDrone(&D[S]);                  // 终端实时显示颜色变化
-            }
-        }
-    }
-    y += 2 * 22 + 6;                                // 两行高度 + 间距
+    /* 颜色选择 */
+    y = DrawSetupColors(x, w, y);
 
     /* 创建按钮 */
     if (Btn((Rectangle){x, (float)y, w, 26}, "+ Create Drone", Gn))
@@ -70,63 +169,9 @@ void DrawSetupPanel(int x, int w, int y) {
     Sep(x, y, w);
     y += 6;
 
-    /* 已创建无人机列表（点击行→选中并显示坐标，行尾×→删除） */
-    DrawText(TextFormat("Drones: %d", N), x, y, 13, Ye);
-    y += 16;
+    /* 已创建无人机列表 */
+    y = DrawSetupList(x, w, y);
 
-    for (int i = 0; i < N; i++) {
-        Drone* d = &D[i];
-
-        /* 小色块 */
-        Color lc = LC[d->color];
-        DrawRectangle(x + 4, (int)y + 4, 10, 10, lc);
-        DrawRectangleLines(x + 4, (int)y + 4, 10, 10, Wh);
-
-        /* 信息文字 */
-        DrawText(TextFormat("#%d %s (%.0f,%.0f,%.0f)",
-            i + 1, d->name, d->start.x, d->start.y, d->start.z),
-            x + 18, y + 3, 12, d->sel ? Wh : Gr);
-
-        /* 点击行→选中 + 坐标输入框显示该机坐标（不自动切 Edit） */
-        Rectangle row = {x, (float)y, w - 26, 20};
-        if (In(row) && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
-            if (S >= 0) D[S].sel = 0;
-            S = i;
-            d->sel = 1;
-            ic = d->color;          // 颜色选择器跳到该机当前颜色
-            FillCoords(d);          // 坐标框实时显示该机坐标
-            PrintDrone(d);          // 终端实时显示该机状态
-        }
-
-        /* 行尾叉号：删除这架无人机 */
-        if (Btn((Rectangle){x + w - 20, (float)y, 20, 20}, "X", Rd)) {
-            DelDrone(i);
-            break;                  // 数组已前移，跳出循环
-        }
-
-        y += 20;
-    }
-
-    if (N == 0) {
-        DrawText("No drones yet.", x, y, 12, Gr);
-        y += 20;
-    }
-
-    /* ---- 编队变换（把所有无人机排成队形） ---- */
-    Sep(x, y, w);
-    y += 6;
-    DrawText("Formation:", x, y, 12, Gr);
-    y += 14;
-    float fw = (w - 8) / 3.0f;
-    if (N > 0 && Btn((Rectangle){x, (float)y, fw, 20}, "Circle", Gn)) FormCircle();
-    if (N > 0 && Btn((Rectangle){x + fw + 3, (float)y, fw, 20}, "Line", Gn)) FormLine();
-    if (N > 0 && Btn((Rectangle){x + 2 * (fw + 3), (float)y, fw, 20}, "Grid", Gn)) FormGrid();
-    y += 24;
-
-    Sep(x, y, w);
-    y += 6;
-
-    /* 跳转编辑模式按钮 */
-    if (N > 0 && Btn((Rectangle){x, (float)y, w, 22}, "-> Edit Track (F2)", Bl))
-        M = M_EDIT;
+    /* 编队变换 + 跳转编辑 */
+    DrawSetupFormation(x, w, y);
 }

@@ -18,6 +18,136 @@
 #include "render.h"     // MouseGround（鼠标拖拽移动无人机）
 
 /* ================================================================
+ *  Keys() 的辅助函数——按功能拆分快捷键处理
+ *
+ *  Keys() 每帧调用一次，检查各种按键并执行对应操作。
+ *  为了可读性，这里按功能把不同按键拆成独立的小函数。
+ * ================================================================ */
+
+/* KeysTab() - Tab：切换选中下一架无人机 */
+static void KeysTab(void) {
+    if (IsKeyPressed(KEY_TAB) && N > 0) {
+        if (S >= 0) D[S].sel = 0;           // 取消旧选中
+        S = (S + 1) % N;                    // 索引+1，%取余实现循环
+        D[S].sel = 1;                       // 标记新选中
+        PrintDrone(&D[S]);                  // 终端显示新选中
+    }
+}
+
+/* KeysSetup() - Setup 模式下的创建/移动/删除快捷键 */
+static void KeysSetup(void) {
+    /* Enter：Setup 模式下把坐标输入框的值应用到选中无人机（移动它） */
+    if (IsKeyPressed(KEY_ENTER) && M == M_SETUP && S >= 0)
+        ApplySetupCoords();
+
+    /* A键：Setup模式下快速创建（文字输入框激活时不响应） */
+    if (IsKeyPressed(KEY_A) && M == M_SETUP && !txtFocus)
+        MakeDrone();
+
+    /* Delete键：删除选中无人机 */
+    if (IsKeyPressed(KEY_DELETE) && S >= 0)
+        DelDrone(S);
+}
+
+/* KeysSwitchLight() - 数字键 1/2/3 切换灯光模式，切换后终端显示 */
+static void KeysSwitchLight(Drone* d) {
+    if (IsKeyPressed(KEY_ONE))   { d->light = L_OFF;   PrintDrone(d); } // 1→关灯
+    if (IsKeyPressed(KEY_TWO))   { d->light = L_ON;    PrintDrone(d); } // 2→常亮
+    if (IsKeyPressed(KEY_THREE)) { d->light = L_BLINK; PrintDrone(d); } // 3→闪烁
+}
+
+/* KeysNudge() - 方向键微调位置（Shift 加速） */
+static void KeysNudge(Drone* d) {
+    float st = IsKeyDown(KEY_LEFT_SHIFT) ? 2 : 0.5f;   // 加速/正常步长
+    float ft = GetFrameTime() * 20;                     // 帧时间系数
+
+    if (IsKeyDown(KEY_UP))    d->pos.y -= st * ft;      // 上→Y负（前）
+    if (IsKeyDown(KEY_DOWN))  d->pos.y += st * ft;      // 下→Y正（后）
+    if (IsKeyDown(KEY_LEFT))  d->pos.x -= st * ft;      // 左→X负
+    if (IsKeyDown(KEY_RIGHT)) d->pos.x += st * ft;      // 右→X正
+}
+
+/* KeysLightMove() - 灯光切换（1/2/3）与方向键微调位置 */
+static void KeysLightMove(void) {
+    if (S >= 0 && S < N && !txtFocus) {     // 有选中 且 无文字输入框激活
+        Drone* d = &D[S];
+        KeysSwitchLight(d);                 // 灯光切换
+        KeysNudge(d);                       // 方向键微调
+    }
+}
+
+/* KeysIntro() - 初始界面：按任意键进入Setup */
+static void KeysIntro(void) {
+    if (M == M_INTRO) {
+        for (int k = 0; k < 512; k++) {     // 遍历所有按键码
+            if (IsKeyPressed(k)) {
+                M = M_SETUP;
+                break;
+            }
+        }
+    }
+}
+
+/* KeysShow() - Show 模式：空格→播放/暂停, Esc→停止 */
+static void KeysShow(void) {
+    if (M == M_SHOW) {
+        if (IsKeyPressed(KEY_SPACE)) {
+            if (!play) { Rst(); play = 1; }
+            else pause = !pause;
+        }
+        if (IsKeyPressed(KEY_ESCAPE))
+            Rst();
+    }
+}
+
+/* KeysFocus() - F 键：相机聚焦选中无人机 */
+static void KeysFocus(void) {
+    if (IsKeyPressed(KEY_F) && S >= 0)
+        Cam.target = (Vector3){D[S].pos.x, D[S].pos.z, D[S].pos.y};  // 数据Z=高度→raylib Y
+}
+
+/* KeysDrag() - 鼠标左键拖拽移动选中无人机（Edit模式，3D区域内，非告警时）
+ * 拖拽是连续操作，和方向键一样：按住全程只记录一次快照。 */
+static void KeysDrag(void) {
+    bool over3D = GetMousePosition().x <= GetScreenWidth() - PW;  // 不在UI面板上
+    bool down = M == M_EDIT && S >= 0 && over3D && !alertActive &&
+                IsMouseButtonDown(MOUSE_LEFT_BUTTON);
+
+    if (down) {
+        Pt g = MouseGround(D[S].pos.z);         // 在当前高度（Z）平面求交点
+        if (g.x < 0)          g.x = 0;          // 钳制到空域内
+        if (g.x > GROUND)     g.x = GROUND;
+        if (g.y < 0)          g.y = 0;
+        if (g.y > GROUND)     g.y = GROUND;
+        D[S].pos.x   = g.x;                     // 更新当前位置（水平 X/Y）
+        D[S].pos.y   = g.y;
+        D[S].start.x = g.x;                     // 同步起始位置（持久生效）
+        D[S].start.y = g.y;
+    }
+}
+
+/* KeysMode() - F1/F2/F3：快速切换模式 */
+static void KeysMode(void) {
+    if (IsKeyPressed(KEY_F1)) M = M_SETUP;
+    if (IsKeyPressed(KEY_F2)) M = M_EDIT;
+    if (IsKeyPressed(KEY_F3)) { M = M_SHOW; Rst(); }
+}
+
+/* KeysCtrl() - Ctrl 快捷键：保存/加载（文字输入时不响应） */
+static void KeysCtrl(void) {
+    if (!txtFocus && IsKeyDown(KEY_LEFT_CONTROL)) {
+        if (IsKeyPressed(KEY_S)) {
+            if (SaveShow("show.json")) Msg("Saved to show.json");
+            else                       Msg("Save failed!");
+        }
+        if (IsKeyPressed(KEY_L)) {
+            if (LoadShow("show.json")) { Rst(); Msg("Loaded from show.json"); }
+            else                        Msg("Load failed (no show.json?)");
+        }
+    }
+}
+
+/* ================================================================
  *  Keys() - 处理键盘快捷键
  *
  *  每帧调用一次，检查各种按键并执行对应操作。
@@ -34,103 +164,65 @@
  *    F1/F2/F3 → 快速切换模式
  * ================================================================ */
 void Keys(void) {
-    /* Tab：切换选中 */
-    if (IsKeyPressed(KEY_TAB) && N > 0) {
-        if (S >= 0) D[S].sel = 0;           // 取消旧选中
-        S = (S + 1) % N;                    // 索引+1，%取余实现循环
-        D[S].sel = 1;                       // 标记新选中
-        PrintDrone(&D[S]);                  // 终端显示新选中
-    }
+    KeysTab();          // Tab：切换选中
+    KeysSetup();        // Enter/A/Delete：创建/移动/删除
+    KeysLightMove();    // 1/2/3：灯光 + 方向键微调
+    KeysIntro();        // 初始界面任意键
+    KeysShow();         // Space/Esc：播放/暂停/停止
+    KeysFocus();        // F：相机聚焦
+    KeysDrag();         // 鼠标拖拽移动
+    KeysMode();         // F1/F2/F3：切模式
+    KeysCtrl();         // Ctrl+S/L：保存/加载
+}
 
-    /* Enter：Setup 模式下把坐标输入框的值应用到选中无人机（移动它） */
-    if (IsKeyPressed(KEY_ENTER) && M == M_SETUP && S >= 0)
-        ApplySetupCoords();
+/* ================================================================
+ *  UpdateLights() - 更新所有无人机的灯光效果
+ *
+ *  闪烁灯每 0.5 秒翻转亮/灭；呼吸/追逐/彩虹靠相位 ph 随时间推进。
+ * ================================================================ */
+static void UpdateLights(float dt) {
+    for (int i = 0; i < N; i++) {
+        Drone* d = &D[i];
+        if (!d->act) continue;              // 跳过不存在的
 
-    /* A键：Setup模式下快速创建（文字输入框激活时不响应） */
-    if (IsKeyPressed(KEY_A) && M == M_SETUP && !txtFocus)
-        MakeDrone();
-
-    /* Delete键：删除选中无人机 */
-    if (IsKeyPressed(KEY_DELETE) && S >= 0)
-        DelDrone(S);
-
-    /* 数字键：切换选中无人机的灯光模式 */
-    if (S >= 0 && S < N && !txtFocus) {     // 有选中 且 无文字输入框激活
-        Drone* d = &D[S];
-
-        /* 灯光切换：1=关 2=常亮 3=闪烁，切换后终端显示 */
-        if (IsKeyPressed(KEY_ONE))   { d->light = L_OFF;   PrintDrone(d); } // 1→关灯
-        if (IsKeyPressed(KEY_TWO))   { d->light = L_ON;    PrintDrone(d); } // 2→常亮
-        if (IsKeyPressed(KEY_THREE)) { d->light = L_BLINK; PrintDrone(d); } // 3→闪烁
-
-        /* 方向键：微调位置（Shift加速） */
-        float st = IsKeyDown(KEY_LEFT_SHIFT) ? 2 : 0.5f;   // 加速/正常步长
-        float ft = GetFrameTime() * 20;                     // 帧时间系数
-
-        if (IsKeyDown(KEY_UP))    d->pos.y -= st * ft;      // 上→Y负（前）
-        if (IsKeyDown(KEY_DOWN))  d->pos.y += st * ft;      // 下→Y正（后）
-        if (IsKeyDown(KEY_LEFT))  d->pos.x -= st * ft;      // 左→X负
-        if (IsKeyDown(KEY_RIGHT)) d->pos.x += st * ft;      // 右→X正
-    }
-
-    /* 初始界面：按任意键进入Setup */
-    if (M == M_INTRO) {
-        for (int k = 0; k < 512; k++) {     // 遍历所有按键码
-            if (IsKeyPressed(k)) {
-                M = M_SETUP;
-                break;
+        if (d->light == L_BLINK) {          // 闪烁：每0.5秒翻转亮/灭
+            d->bt += dt;                    // 累计时间
+            if (d->bt >= 0.5f) {            // 每0.5秒切换
+                d->bt -= 0.5f;              // 重置计时器（保留超出部分）
+                d->bon = !d->bon;           // 翻转亮/灭状态
             }
+        } else if (d->light == L_PULSE || d->light == L_CHASE ||
+                   d->light == L_RAINBOW) {
+            /* 呼吸/追逐/彩虹都靠相位 ph 驱动，相位随时间推进 */
+            d->ph += dt * d->espeed * 2.0f;
         }
     }
+}
 
-    /* Show模式：空格→播放/暂停, Esc→停止 */
-    if (M == M_SHOW) {
-        if (IsKeyPressed(KEY_SPACE)) {
-            if (!play) { Rst(); play = 1; }
-            else pause = !pause;
-        }
-        if (IsKeyPressed(KEY_ESCAPE))
-            Rst();
-    }
+/* ================================================================
+ *  UpdatePlayback() - Show 模式下驱动回放动画
+ *
+ *  推进回放位置，做实时安全检测（越界/碰撞则暂停弹窗），
+ *  并每 0.5 秒在终端打印一次所有无人机的位置和灯光。
+ * ================================================================ */
+static void UpdatePlayback(float dt) {
+    if (M != M_SHOW) return;                // 非 Show 模式不处理回放
 
-    /* F键：相机聚焦选中无人机 */
-    if (IsKeyPressed(KEY_F) && S >= 0)
-        Cam.target = (Vector3){D[S].pos.x, D[S].pos.z, D[S].pos.y};  // 数据Z=高度→raylib Y
+    Upd(dt);
 
-    /* 鼠标左键拖拽移动选中无人机（Edit模式，3D区域内，非告警时）
-     * 拖拽是连续操作，和方向键一样：按住全程只记录一次快照。 */
-    {
-        bool over3D = GetMousePosition().x <= GetScreenWidth() - PW;  // 不在UI面板上
-        bool down = M == M_EDIT && S >= 0 && over3D && !alertActive &&
-                    IsMouseButtonDown(MOUSE_LEFT_BUTTON);
+    /* 实时安全检测：播放中若越界或碰撞，暂停并弹窗 */
+    if (play && !pause && LiveCheck())
+        pause = true;
 
-        if (down) {
-            Pt g = MouseGround(D[S].pos.z);         // 在当前高度（Z）平面求交点
-            if (g.x < 0)          g.x = 0;          // 钳制到空域内
-            if (g.x > GROUND)     g.x = GROUND;
-            if (g.y < 0)          g.y = 0;
-            if (g.y > GROUND)     g.y = GROUND;
-            D[S].pos.x   = g.x;                     // 更新当前位置（水平 X/Y）
-            D[S].pos.y   = g.y;
-            D[S].start.x = g.x;                     // 同步起始位置（持久生效）
-            D[S].start.y = g.y;
-        }
-    }
-
-    /* F1/F2/F3：快速切换模式 */
-    if (IsKeyPressed(KEY_F1)) M = M_SETUP;
-    if (IsKeyPressed(KEY_F2)) M = M_EDIT;
-    if (IsKeyPressed(KEY_F3)) { M = M_SHOW; Rst(); }
-
-    /* Ctrl 快捷键：保存/加载（文字输入时不响应） */
-    if (!txtFocus && IsKeyDown(KEY_LEFT_CONTROL)) {
-        if (IsKeyPressed(KEY_S)) {
-            if (SaveShow("show.json")) Msg("Saved to show.json");
-            else                       Msg("Save failed!");
-        }
-        if (IsKeyPressed(KEY_L)) {
-            if (LoadShow("show.json")) { Rst(); Msg("Loaded from show.json"); }
-            else                        Msg("Load failed (no show.json?)");
+    /* 实时模拟：播放时每 0.5 秒在终端打印一次所有无人机的位置和灯光 */
+    if (play && !pause) {
+        static float termTimer = 0;          // 终端打印节流计时器
+        termTimer += dt;
+        if (termTimer >= 0.5f) {             // 每 0.5 秒打印一次
+            termTimer = 0;
+            printf("---- live ----\n");
+            for (int i = 0; i < N; i++)
+                if (D[i].act) PrintDrone(&D[i]);
         }
     }
 }
@@ -154,41 +246,6 @@ void Update(float dt) {
 
     if (mt > 0) mt -= dt;                   // 消息计时器递减（减到0消失）
 
-    /* 更新所有无人机的灯光效果 */
-    for (int i = 0; i < N; i++) {
-        Drone* d = &D[i];
-        if (!d->act) continue;              // 跳过不存在的
-
-        if (d->light == L_BLINK) {          // 闪烁：每0.5秒翻转亮/灭
-            d->bt += dt;                    // 累计时间
-            if (d->bt >= 0.5f) {            // 每0.5秒切换
-                d->bt -= 0.5f;              // 重置计时器（保留超出部分）
-                d->bon = !d->bon;           // 翻转亮/灭状态
-            }
-        } else if (d->light == L_PULSE || d->light == L_CHASE ||
-                   d->light == L_RAINBOW) {
-            /* 呼吸/追逐/彩虹都靠相位 ph 驱动，相位随时间推进 */
-            d->ph += dt * d->espeed * 2.0f;
-        }
-    }
-
-    /* Show模式：驱动回放动画 */
-    if (M == M_SHOW) {
-        Upd(dt);
-        /* 实时安全检测：播放中若越界或碰撞，暂停并弹窗 */
-        if (play && !pause && LiveCheck())
-            pause = true;
-
-        /* 实时模拟：播放时每 0.5 秒在终端打印一次所有无人机的位置和灯光 */
-        if (play && !pause) {
-            static float termTimer = 0;          // 终端打印节流计时器
-            termTimer += dt;
-            if (termTimer >= 0.5f) {             // 每 0.5 秒打印一次
-                termTimer = 0;
-                printf("---- live ----\n");
-                for (int i = 0; i < N; i++)
-                    if (D[i].act) PrintDrone(&D[i]);
-            }
-        }
-    }
+    UpdateLights(dt);                       // 灯光效果
+    UpdatePlayback(dt);                     // 回放动画（Show 模式）
 }

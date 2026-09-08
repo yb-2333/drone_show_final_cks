@@ -50,6 +50,23 @@ void ObjAdd(JVal* o, const char* k, JVal* v) {
 
 /* ============================ 释放 ============================ */
 
+/* JsonFreeArr() - 释放数组节点：递归释放所有元素后释放指针数组 */
+static void JsonFreeArr(JVal* v) {
+    for (int i = 0; i < v->count; i++)
+        JsonFree(v->items[i]);
+    free(v->items);
+}
+
+/* JsonFreeObj() - 释放对象节点：释放键名、递归释放值，再释放两个数组 */
+static void JsonFreeObj(JVal* v) {
+    for (int i = 0; i < v->count; i++) {
+        free(v->keys[i]);
+        JsonFree(v->vals[i]);
+    }
+    free(v->keys);
+    free(v->vals);
+}
+
 /* JsonFree() - 递归释放 JSON 树 */
 void JsonFree(JVal* v) {
     if (!v) return;
@@ -57,37 +74,48 @@ void JsonFree(JVal* v) {
     if (v->type == J_STR) {
         free(v->str);
     } else if (v->type == J_ARR) {
-        for (int i = 0; i < v->count; i++) JsonFree(v->items[i]);
-        free(v->items);
+        JsonFreeArr(v);
     } else if (v->type == J_OBJ) {
-        for (int i = 0; i < v->count; i++) {
-            free(v->keys[i]);
-            JsonFree(v->vals[i]);
-        }
-        free(v->keys);
-        free(v->vals);
+        JsonFreeObj(v);
     }
     free(v);
 }
 
 /* ============================ 查询 ============================ */
 
+/* JsonIndex() - 在对象中按键名查找，返回下标（找不到返回 -1） */
+static int JsonIndex(JVal* obj, const char* key) {
+    for (int i = 0; i < obj->count; i++)
+        if (strcmp(obj->keys[i], key) == 0) return i;
+    return -1;
+}
+
 /* JsonGet() - 从对象中按键名取子值 */
 JVal* JsonGet(JVal* obj, const char* key) {
     if (!obj || obj->type != J_OBJ) return NULL;
-    for (int i = 0; i < obj->count; i++)
-        if (strcmp(obj->keys[i], key) == 0) return obj->vals[i];
-    return NULL;
+
+    int i = JsonIndex(obj, key);        // 先找键名下标
+    return (i >= 0) ? obj->vals[i] : NULL;
+}
+
+/* JsonIsNum() - 判断一个值是否为数字类型（含空值保护） */
+static int JsonIsNum(JVal* v) {
+    return v && v->type == J_NUM;
+}
+
+/* JsonIsStr() - 判断一个值是否为字符串类型（含空值保护） */
+static int JsonIsStr(JVal* v) {
+    return v && v->type == J_STR;
 }
 
 /* JsonNum() - 取数字字段 */
 double JsonNum(JVal* obj, const char* key, double def) {
     JVal* v = JsonGet(obj, key);
-    return (v && v->type == J_NUM) ? v->num : def;
+    return JsonIsNum(v) ? v->num : def;
 }
 
 /* JsonStr() - 取字符串字段 */
 const char* JsonStr(JVal* obj, const char* key, const char* def) {
     JVal* v = JsonGet(obj, key);
-    return (v && v->type == J_STR) ? v->str : def;
+    return JsonIsStr(v) ? v->str : def;
 }

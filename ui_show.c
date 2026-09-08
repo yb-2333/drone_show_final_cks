@@ -15,11 +15,11 @@
 #include "stats.h"      // ComputeStats（演出统计）
 
 /* ================================================================
- *  DrawShowPanel() - 绘制 Show 模式面板
- *
- *  参数 x/w/y 由 DrawUI 传入（面板内容区坐标）。
+ *  DrawShowPanel() 的辅助函数——按区块拆分
  * ================================================================ */
-void DrawShowPanel(int x, int w, int y) {
+
+/* DrawShowHeader() - 面板标题 + 就绪无人机计数 */
+static int DrawShowHeader(int x, int w, int y) {
     DrawText("[ Show ] Playback", x, y, 14, Ye);
     y += 18;
 
@@ -29,8 +29,11 @@ void DrawShowPanel(int x, int w, int y) {
         if (D[i].wc > 0) h++;
 
     DrawText(TextFormat("Ready: %d/%d drones", h, N), x, y, 12, Gr);
-    y += 17;
+    return y + 17;
+}
 
+/* DrawShowTransport() - 速度滑块 + 播放按钮 + 进度条 + 快捷键提示 */
+static int DrawShowTransport(int x, int w, int y) {
     /* 速度滑块 */
     spd = Sld((Rectangle){x, (float)y, (float)w, 22}, spd, 0.5f, 8, "Speed: %.1fx");
     y += 28;
@@ -58,9 +61,18 @@ void DrawShowPanel(int x, int w, int y) {
 
     /* 快捷键提示 */
     DrawText("Space=Play/Pause  Esc=Stop", x, y, 11, Gr);
-    y += 15;
+    return y + 15;
+}
 
-    /* ---- 演出统计面板 ---- */
+/* DrawShowControls() - 播放控制区（就绪数/速度/播放按钮/进度条） */
+static int DrawShowControls(int x, int w, int y) {
+    y = DrawShowHeader(x, w, y);        // 标题 + 就绪数
+    y = DrawShowTransport(x, w, y);     // 滑块/按钮/进度条
+    return y;
+}
+
+/* DrawShowStats() - 演出统计面板（数量/路径/时长/包围盒） */
+static void DrawShowStats(int x, int w, int y) {
     Sep(x, y, w);
     y += 6;
     DrawText("Statistics:", x, y, 12, Bl);
@@ -88,4 +100,14 @@ void DrawShowPanel(int x, int w, int y) {
     /* 包围盒：整场演出占用的水平范围（X/Y 平面，Z 是高度） */
     DrawText(TextFormat("Bounds X: %.0f..%.0f  Y: %.0f..%.0f",
         st.bmin.x, st.bmax.x, st.bmin.y, st.bmax.y), x, y, 11, Gr);
+}
+
+/* ================================================================
+ *  DrawShowPanel() - 绘制 Show 模式面板
+ *
+ *  参数 x/w/y 由 DrawUI 传入（面板内容区坐标）。
+ * ================================================================ */
+void DrawShowPanel(int x, int w, int y) {
+    y = DrawShowControls(x, w, y);      // 播放控制区
+    DrawShowStats(x, w, y);             // 演出统计
 }
