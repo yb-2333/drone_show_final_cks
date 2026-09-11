@@ -102,13 +102,6 @@ int main(void) {
     float camDist, camYaw, camPitch;
     CamInit(&camDist, &camYaw, &camPitch);
 
-    if (LoadShow("show.json")) {
-        Rst();
-        printf("Loaded saved show: %d drones restored (F3 to replay)\n", N);
-    } else {
-        printf("No saved show yet - build a new one\n");
-    }
-
     while (!WindowShouldClose()) {
         float dt = GetFrameTime();
 
@@ -150,7 +143,7 @@ int main(void) {
     }
 
     if (SaveShow("show.json"))
-        printf("Show saved - it will restore next launch\n");
+        printf("Show saved (Ctrl+L to load)\n");
 
     CloseWindow();
     return 0;
