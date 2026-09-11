@@ -1,307 +1,193 @@
-/******************************************************************************
- *  utils.c  -  工具函数实现
- *
- *  包含6个UI基础组件：Msg（消息）、In（鼠标检测）、Btn（按钮）、
- *  Txt（文字输入框）、Sep（分隔线）、Sld（滑块）。
- *
- *  【给初学者】
- *  注意这里每个函数都不再加 static 关键字——因为其他 .c 文件也需要调用它们。
- *  static 的作用是"限制函数/变量只在当前文件内可见"。
- ******************************************************************************/
-#include "utils.h"      // 自己的头文件（函数声明）
-#include "common.h"     // 所有全局变量（msg, mt, txtFocus, Br, Bl, Wh, Bt 等）
+#include "utils.h"
+#include "common.h"
 
-/* ================================================================
- *  Msg() - 显示一条状态消息
- *
- *  用法和 printf 一样：Msg("创建了 %s", name);
- *  消息会在屏幕顶部显示约2.5秒后自动消失。
- *
- *  涉及的C语言知识点：
- *    va_list / va_start / va_end 是C语言处理可变参数的标准方式。
- *    vsnprintf 是 sprintf 的安全版本，限制最大写入长度防止溢出。
- * ================================================================ */
 void Msg(const char* f, ...) {
-    va_list a;                                  // 声明一个可变参数列表变量
-    va_start(a, f);                             // 初始化：让 a 指向 f 后面的第一个可变参数
-    vsnprintf(msg, sizeof(msg), f, a);          // 将格式化后的字符串写入 msg 缓冲区
-    va_end(a);                                  // 清理可变参数列表（必须与va_start配对）
-    mt = 2.5f;                                  // 设置消息显示倒计时2.5秒
+    va_list a;
+    va_start(a, f);
+    vsnprintf(msg, sizeof(msg), f, a);
+    va_end(a);
+    mt = 2.5f;
 }
 
-/* ================================================================
- *  In() - 判断鼠标是否在一个矩形区域内
- *
- *  这是UI交互的核心函数——判断用户是否把鼠标移到了某个按钮/输入框上。
- *  返回: 1（true，在里面）或 0（false，不在里面）
- * ================================================================ */
 int In(Rectangle r) {
-    Vector2 m = GetMousePosition();             // 获取鼠标当前的屏幕坐标
-    /* 判断鼠标坐标是否在矩形四条边界之内 */
-    return m.x >= r.x                           // 鼠标X ≥ 矩形左边界
-        && m.x <= r.x + r.width                 // 鼠标X ≤ 矩形右边界
-        && m.y >= r.y                           // 鼠标Y ≥ 矩形上边界
-        && m.y <= r.y + r.height;               // 鼠标Y ≤ 矩形下边界
+    Vector2 m = GetMousePosition();
+
+    return m.x >= r.x
+        && m.x <= r.x + r.width
+        && m.y >= r.y
+        && m.y <= r.y + r.height;
 }
 
-/* ================================================================
- *  BtnDraw() - 绘制按钮外观（背景 + 边框 + 居中文字）
- * ================================================================ */
 static void BtnDraw(Rectangle r, const char* t, Color c) {
-    DrawRectangleRec(r, c);                     // 画按钮背景填充矩形
-    DrawRectangleLinesEx(r, 1, Br);             // 画边框线（1像素宽，深灰色）
-    int tw = MeasureText(t, 18);                // 测量文字宽度（字号18），用于居中计算
-    /* 水平居中：矩形中心X - 文字宽度的一半；垂直居中：矩形中心Y - 字号的一半 */
+    DrawRectangleRec(r, c);
+    DrawRectangleLinesEx(r, 1, Br);
+    int tw = MeasureText(t, 18);
+
     DrawText(t, (int)(r.x + r.width / 2 - tw / 2),
                 (int)(r.y + r.height / 2 - 9), 18, Wh);
 }
 
-/* ================================================================
- *  Btn() - 绘制按钮并检测点击
- *
- *  做两件事：1) 画按钮（背景+边框+文字） 2) 检测是否被点击
- *  返回: 1（被点击了）或 0（没被点击）
- * ================================================================ */
 int Btn(Rectangle r, const char* t, Color c) {
-    BtnDraw(r, t, c);                           // 先画外观
-    /* 鼠标在矩形内 并且 鼠标左键刚被按下 → 返回1（被点击） */
+    BtnDraw(r, t, c);
+
     return In(r) && IsMouseButtonPressed(MOUSE_LEFT_BUTTON);
 }
 
-/* ================================================================
- *  文字输入框 Txt() 的辅助函数
- *
- *  Txt() 是 UI 里最复杂的组件，这里把它拆成四个小步骤：
- *    TxtId     - 生成唯一ID
- *    TxtFocus  - 鼠标点击激活/取消激活 + 设置全局焦点标记
- *    TxtInput  - 键盘输入处理
- *    TxtCursor - 闪烁光标
- * ================================================================ */
-
-/* activeIdx 记录当前被激活的输入框ID（-1=没有）。
- * 用 static 让它在多次调用之间保持值，确保只有一个输入框接收键盘输入。 */
 static int activeIdx = -1;
 
-/* TxtId() - 用 buf 指针的地址生成唯一ID（取低12位），区分不同的输入框 */
 static int TxtId(const char* buf) {
     return (int)((long long)buf & 0xFFF);
 }
 
-/* TxtFocus() - 处理鼠标点击激活/取消激活，并更新全局 txtFocus */
 static void TxtFocus(Rectangle r, int id) {
-    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {      // 鼠标左键按下
-        if (In(r))                          // 点在当前输入框内 → 激活它
+    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+        if (In(r))
             activeIdx = id;
-        else if (activeIdx == id)           // 点在外部且当前是激活的 → 取消激活
+        else if (activeIdx == id)
             activeIdx = -1;
     }
 
-    if (activeIdx == id) txtFocus = 1;      // 告诉系统"有输入框正在接收键盘输入"
-                                            // 用于阻止快捷键干扰打字
+    if (activeIdx == id) txtFocus = 1;
+
 }
 
-/* TxtChars() - 处理普通字符输入（可打印ASCII字符：空格~波浪号）
- * 返回 1 表示内容发生了变化。 */
 static int TxtChars(char* buf, int max) {
-    int changed = 0;                        // 标记内容是否改变
+    int changed = 0;
 
-    int key = GetCharPressed();             // 获取按下的字符码
-    while (key > 0) {                       // 可能一帧内按了多个键，全部处理
-        if (key >= 32 && key <= 126) {      // 只接受可打印字符
+    int key = GetCharPressed();
+    while (key > 0) {
+        if (key >= 32 && key <= 126) {
             int len = (int)strlen(buf);
-            if (len < max - 1) {            // 留一个位置给字符串结束符 '\0'
-                buf[len] = (char)key;       // 追加字符到末尾
-                buf[len + 1] = 0;           // 添加结束符
+            if (len < max - 1) {
+                buf[len] = (char)key;
+                buf[len + 1] = 0;
                 changed = 1;
             }
         }
-        key = GetCharPressed();             // 继续获取下一个待处理按键
+        key = GetCharPressed();
     }
     return changed;
 }
 
-/* TxtBackspace() - 处理退格键，返回 1 表示删除了一个字符 */
 static int TxtBackspace(char* buf) {
-    if (!IsKeyPressed(KEY_BACKSPACE)) return 0;     // 没按退格键
+    if (!IsKeyPressed(KEY_BACKSPACE)) return 0;
 
     int len = (int)strlen(buf);
-    if (len <= 0) return 0;                 // 没有字符可删
+    if (len <= 0) return 0;
 
-    buf[len - 1] = 0;                       // 将最后一个字符替换为'\0'
+    buf[len - 1] = 0;
     return 1;
 }
 
-/* TxtMinus() - 处理负号键，返回 1 表示输入了负号 */
 static int TxtMinus(char* buf) {
     if (!IsKeyPressed(KEY_MINUS) && !IsKeyPressed(KEY_KP_SUBTRACT))
-        return 0;                           // 没按负号键
+        return 0;
 
     int len = (int)strlen(buf);
-    if (len != 0) return 0;                 // 只有输入框为空时才能输入负号
+    if (len != 0) return 0;
 
     buf[0] = '-';
     buf[1] = 0;
     return 1;
 }
 
-/* TxtDecimal() - 处理小数点键，返回 1 表示输入了小数点 */
 static int TxtDecimal(char* buf, int max) {
     if (!IsKeyPressed(KEY_PERIOD) && !IsKeyPressed(KEY_KP_DECIMAL))
-        return 0;                           // 没按小数点键
+        return 0;
 
     int len = (int)strlen(buf);
-    if (len >= max - 1 || strchr(buf, '.')) return 0;  // 没空间 或 已有小数点
+    if (len >= max - 1 || strchr(buf, '.')) return 0;
 
     buf[len] = '.';
     buf[len + 1] = 0;
     return 1;
 }
 
-/* TxtInput() - 处理键盘输入（打字/退格/负号/小数点），返回内容是否变化 */
 static int TxtInput(char* buf, int max) {
-    int changed = 0;                        // 标记内容是否改变
-    changed |= TxtChars(buf, max);          // 普通字符输入
-    changed |= TxtBackspace(buf);           // 退格删除
-    changed |= TxtMinus(buf);               // 负号
-    changed |= TxtDecimal(buf, max);        // 小数点
+    int changed = 0;
+    changed |= TxtChars(buf, max);
+    changed |= TxtBackspace(buf);
+    changed |= TxtMinus(buf);
+    changed |= TxtDecimal(buf, max);
     return changed;
 }
 
-/* TxtCursor() - 绘制闪烁光标（GetTime()×2 让光标每秒闪烁2次） */
 static void TxtCursor(Rectangle r, const char* buf) {
-    if (((int)(GetTime() * 2) % 2) == 0) {  // 偶数半秒显示光标
-        int tw = MeasureText(buf, 16);       // 文字像素宽度
-        DrawText("|",                        // 竖线作为光标
-                 (int)(r.x + 5 + tw),        // 位置紧跟文字末尾
+    if (((int)(GetTime() * 2) % 2) == 0) {
+        int tw = MeasureText(buf, 16);
+        DrawText("|",
+                 (int)(r.x + 5 + tw),
                  (int)(r.y + r.height / 2 - 8), 16, Bl);
     }
 }
 
-/* ================================================================
- *  Txt() - 文字输入框
- *
- *  这是最复杂的UI组件，负责：
- *    1. 绘制输入框外观（标签、背景、边框、文字）
- *    2. 处理鼠标点击激活/取消激活
- *    3. 处理键盘输入（打字、退格、负号、小数点）
- *    4. 绘制闪烁光标
- *
- *  返回: 1（内容变化了）或 0（没变化）
- *
- *  参数:
- *    r     - 输入框的矩形区域
- *    buf   - 存储输入内容的字符数组指针
- *    max   - buf 的最大容量
- *    label - 输入框上方显示的标签
- * ================================================================ */
 int Txt(Rectangle r, char* buf, int max, const char* label) {
-    /* 在输入框上方画标签文字 */
+
     DrawText(label, (int)r.x, (int)(r.y - 14), 12, Gr);
 
-    /* 边框颜色：默认深灰，鼠标悬停时变蓝（hover效果） */
     Color bc = Br;
     if (In(r)) bc = Bl;
 
-    DrawRectangleRec(r, (Color){20, 22, 32, 255});      // 输入框背景（深色）
-    DrawRectangleLinesEx(r, 1.5f, bc);                   // 输入框边框
-    DrawText(buf, (int)(r.x + 4),                        // 已输入的文字
+    DrawRectangleRec(r, (Color){20, 22, 32, 255});
+    DrawRectangleLinesEx(r, 1.5f, bc);
+    DrawText(buf, (int)(r.x + 4),
              (int)(r.y + r.height / 2 - 8), 16, Wh);
 
-    /* 焦点管理 + 键盘输入 + 光标 */
-    int id = TxtId(buf);                    // 生成唯一ID
-    TxtFocus(r, id);                        // 点击激活/取消激活
+    int id = TxtId(buf);
+    TxtFocus(r, id);
 
-    if (activeIdx == id) {                  // 只有激活的输入框才处理按键
-        int changed = TxtInput(buf, max);   // 键盘输入
-        TxtCursor(r, buf);                  // 闪烁光标
-        return changed;                     // 返回内容是否变化
+    if (activeIdx == id) {
+        int changed = TxtInput(buf, max);
+        TxtCursor(r, buf);
+        return changed;
     }
-    return 0;                               // 未激活，无变化
+    return 0;
 }
 
-/* ================================================================
- *  Sep() - 画水平分隔线
- * ================================================================ */
 void Sep(int x, int y, int w) {
-    DrawRectangle(x, y, w, 1, Br);          // 1像素高的矩形 = 一条横线
+    DrawRectangle(x, y, w, 1, Br);
 }
 
-/* ================================================================
- *  SldDraw() - 绘制滑块的外观
- *
- *  画标签文字 + 滑轨背景 + 已填充部分 + 拖动手柄。
- *  把当前值 v 归一化到 0~1，算出手柄在轨道上的 X 坐标。
- * ================================================================ */
 static void SldDraw(Rectangle r, float v, float lo, float hi, const char* f) {
-    /* 画标签文字（如 "Speed: 2.0x"） */
+
     DrawText(TextFormat(f, v), (int)r.x, (int)(r.y - 15), 13, Gr);
 
-    /* 画滑轨背景（深色横条，高6像素） */
     DrawRectangleRec((Rectangle){r.x, r.y + r.height / 2 - 3, r.width, 6},
                      (Color){50, 50, 65, 255});
 
-    /* 将当前值映射到0~1范围（归一化），计算手柄X坐标 */
-    float t  = (v - lo) / (hi - lo);        // 归一化比例
-    float hx = r.x + t * r.width;           // 手柄在轨道上的X位置
+    float t  = (v - lo) / (hi - lo);
+    float hx = r.x + t * r.width;
 
-    /* 画已填充部分（蓝色，从起点到手柄位置） */
     DrawRectangle((int)r.x, (int)(r.y + r.height / 2 - 3),
                   (int)(hx - r.x), 6, Bl);
 
-    /* 画手柄（白色小方块） */
     DrawRectangle((int)(hx - 5), (int)r.y, 10, (int)r.height, Wh);
 }
 
-/* ================================================================
- *  Sld() - 滑块控件（Show模式调节播放速度）
- *
- *  绘制内容：标签文字 + 滑轨背景 + 已填充部分 + 拖动手柄
- *  返回: 用户调整后的新值（没拖动则返回原值v）
- *
- *  参数:
- *    r  - 滑块区域
- *    v  - 当前值
- *    lo - 最小值
- *    hi - 最大值
- *    f  - 标签格式字符串，如 "Speed: %.1fx"
- * ================================================================ */
 float Sld(Rectangle r, float v, float lo, float hi, const char* f) {
-    SldDraw(r, v, lo, hi, f);               // 先画外观
+    SldDraw(r, v, lo, hi, f);
 
-    /* 交互：鼠标按住时拖动 */
     if (IsMouseButtonDown(MOUSE_LEFT_BUTTON) && In(r)) {
-        float t = (GetMousePosition().x - r.x) / r.width;   // 根据鼠标位置重算比例
-        if (t < 0) t = 0;                               // 限制最小值
-        if (t > 1) t = 1;                               // 限制最大值
-        return lo + t * (hi - lo);                      // 比例→实际值
+        float t = (GetMousePosition().x - r.x) / r.width;
+        if (t < 0) t = 0;
+        if (t > 1) t = 1;
+        return lo + t * (hi - lo);
     }
 
-    return v;                               // 没拖动，返回原值
+    return v;
 }
 
-/* ================================================================
- *  Hsv2Rgb() - HSV 色相转 RGB 颜色
- *
- *  HSV（色相/饱和度/明度）比 RGB 更适合表达"颜色循环"，
- *  因为色相 h 从 0 变到 1 就能绕整个色环一圈（红→绿→蓝→红）。
- *  用于彩虹灯光效果：让 h 随时间增长，颜色就不断循环变化。
- *
- *  参数:
- *    h - 色相（0~1，超出的部分会回绕）
- *    s - 饱和度（0~1）
- *    v - 明度（0~1）
- * ================================================================ */
 Color Hsv2Rgb(float h, float s, float v) {
     float r = 0, g = 0, b = 0;
 
-    if (s <= 0) {                           // 无饱和度 → 灰色
+    if (s <= 0) {
         r = g = b = v;
     } else {
-        if (h >= 1.0f) h -= (int)h;         // 色相回绕到 0~1
+        if (h >= 1.0f) h -= (int)h;
         if (h < 0.0f)  h += 1.0f;
-        h *= 6.0f;                          // 色相 → 六段扇区
-        int   i = (int)h;                   // 落在哪个扇区
-        float f = h - i;                    // 扇区内的小数部分
+        h *= 6.0f;
+        int   i = (int)h;
+        float f = h - i;
         float p = v * (1.0f - s);
         float q = v * (1.0f - s * f);
         float t = v * (1.0f - s * (1.0f - f));

@@ -1,30 +1,13 @@
-/******************************************************************************
- *  ui_edit.c  -  Edit 模式面板（灯光 + 轨迹编辑）
- *
- *  提供编辑选中无人机的完整界面：
- *     - 灯光模式（6 种）（颜色在 Setup 界面改）
- *     - 轨迹平滑模式（缓动 / 样条，每架独立）
- *     - 航点添加 / 列表编辑（上移/下移/复制/粘贴/删除）
- *     - 复制整架无人机
- *
- *  由 ui.c 的 DrawUI() 在 M_EDIT 模式下调用。
- ******************************************************************************/
-#include "ui.h"         // 自己的头文件
-#include "common.h"     // 所有全局变量
-#include "utils.h"      // Btn, Txt, Sep, Msg, In
-#include "drone.h"      // DuplicateDrone（复制整架无人机）
-#include "safety.h"     // InAirspace, SetAlert, CheckOverlap
-#include "trajectory.h" // PathLen（航点累计长度显示）
+#include "ui.h"
+#include "common.h"
+#include "utils.h"
+#include "drone.h"
+#include "safety.h"
+#include "trajectory.h"
 
-/* 航点剪贴板：复制航点后暂存在这里，供"粘贴"使用 */
-static Waypoint clip;           // 复制的航点
-static bool     clipSet = false;   // 是否有已复制的航点
+static Waypoint clip;
+static bool     clipSet = false;
 
-/* ================================================================
- *  DrawEditPanel() 的辅助函数——按区块拆分
- * ================================================================ */
-
-/* DrawEditLights() - 灯光模式选择（6 种，两行三列） */
 static int DrawEditLights(int x, int w, int y, Drone* d) {
     DrawText(TextFormat("Selected: %s", d->name), x, y, 13, Wh);
     y += 17;
@@ -39,17 +22,13 @@ static int DrawEditLights(int x, int w, int y, Drone* d) {
         int r = k / 3, c = k % 3;
         Rectangle br = { x + c * (lw + 3), (float)(y + r * 26), lw, 22 };
         if (Btn(br, lnames[k], d->light == lvals[k] ? lcols[k] : Bt)) {
-            d->light = lvals[k];    // 切换灯光模式
-            PrintDrone(d);          // 终端实时显示灯光变化
+            d->light = lvals[k];
+            PrintDrone(d);
         }
     }
     return y + 2 * 26 + 4;
 }
 
-/* TryAddWaypoint() - 把坐标输入框的值作为航点追加到选中无人机
- *
- *  做两层校验：先查越界（越界弹窗不加入），加入后再查是否与其它机
- *  重合（重合则回滚，避免留下会相撞的轨迹）。 */
 static void TryAddWaypoint(Drone* d) {
     if (d->wc < MAX_WP) {
         float px = (float)atof(wx);
@@ -57,14 +36,12 @@ static void TryAddWaypoint(Drone* d) {
         float pz = (float)atof(wz);
         Pt wp = (Pt){px, py, pz};
 
-        /* 路径点越界检查：越界则弹窗提示，不加入 */
         if (!InAirspace(wp)) {
             SetAlert("Waypoint out of range (%.0f, %.0f, %.0f)", px, py, pz);
         } else {
             d->wp[d->wc].p = wp;
             d->wc++;
-            /* 与其它机重合：CheckOverlap 已弹窗提示，这里回滚刚加入的航点，
-             * 避免留下一条会相撞的轨迹（否则关掉弹窗后它还在）。 */
+
             if (CheckOverlap(S))
                 d->wc--;
         }
@@ -73,7 +50,6 @@ static void TryAddWaypoint(Drone* d) {
     }
 }
 
-/* DrawEditAddWaypoint() - 添加路径点区（输入 + 添加按钮，含越界/重合检查） */
 static int DrawEditAddWaypoint(int x, int w, int y, Drone* d) {
     DrawText("Add Waypoint:", x, y, 12, Gr);
     y += 14;
@@ -87,18 +63,15 @@ static int DrawEditAddWaypoint(int x, int w, int y, Drone* d) {
     y += 30;
 
     if (Btn((Rectangle){x, (float)y, w, 24}, "+ Add Waypoint", Bl))
-        TryAddWaypoint(d);                  // 校验后追加航点
+        TryAddWaypoint(d);
 
     return y + 26;
 }
 
-/* DrawWpTools() - 航点列表顶部的复制/粘贴工具条 */
 static int DrawWpTools(int x, int w, int y, Drone* d) {
     DrawText(TextFormat("Waypoints: %d  Len: %.1fm", d->wc, PathLen(d)), x, y, 12, Gr);
     y += 15;
 
-    /* 复制 + 粘贴（并排放在一起）
-     * "Copy" 复制最后一个航点，"Paste" 把它追加到末尾。 */
     if (Btn((Rectangle){x, (float)y, w / 2 - 3, 20},
             "Copy", d->wc > 0 ? Bl : Bt)) {
         if (d->wc > 0) { clip = d->wp[d->wc - 1]; clipSet = true; Msg("Copied last waypoint"); }
@@ -110,14 +83,13 @@ static int DrawWpTools(int x, int w, int y, Drone* d) {
     return y + 24;
 }
 
-/* DrawWpRows() - 每个航点一行：坐标 + 上移/下移/删除 */
 static int DrawWpRows(int x, int w, int y, Drone* d) {
     for (int i = 0; i < d->wc && i < 6; i++) {
         DrawText(TextFormat("#%d %.0f,%.0f,%.0f", i + 1,
             d->wp[i].p.x, d->wp[i].p.y, d->wp[i].p.z),
             x + 2, y + 2, 11, Wh);
 
-        float bx = x + w - 58;                  // 右侧按钮区起点（3个按钮）
+        float bx = x + w - 58;
         if (Btn((Rectangle){bx,      (float)y, 18, 18}, "^", i > 0 ? Gn : Bt)) {
             if (i > 0) { Waypoint t = d->wp[i]; d->wp[i] = d->wp[i - 1]; d->wp[i - 1] = t; }
         }
@@ -128,7 +100,7 @@ static int DrawWpRows(int x, int w, int y, Drone* d) {
             for (int j = i; j < d->wc - 1; j++)
                 d->wp[j] = d->wp[j + 1];
             d->wc--;
-            break;                              // 数组已前移，跳出循环
+            break;
         }
         y += 20;
     }
@@ -139,17 +111,14 @@ static int DrawWpRows(int x, int w, int y, Drone* d) {
     return y;
 }
 
-/* DrawEditWaypointList() - 路径点列表编辑器（复制/粘贴 + 每行上移/下移/删除） */
 static int DrawEditWaypointList(int x, int w, int y, Drone* d) {
-    y = DrawWpTools(x, w, y, d);        // 复制/粘贴工具条
-    y = DrawWpRows(x, w, y, d);         // 航点行
+    y = DrawWpTools(x, w, y, d);
+    y = DrawWpRows(x, w, y, d);
     return y;
 }
 
-/* DrawEditPathStyle() - 轨迹平滑模式 + 复制整机/返回 Setup */
 static void DrawEditPathStyle(int x, int w, int y, Drone* d) {
-    /* 轨迹平滑模式（只影响选中这架无人机，每架独立）
-     * Eased=直线+缓动（加速→减速）  Spline=平滑曲线 */
+
     DrawText("Path style:", x, y, 12, Gr);
     y += 14;
     float pmw = (w - 8) / 2.0f;
@@ -160,38 +129,32 @@ static void DrawEditPathStyle(int x, int w, int y, Drone* d) {
     Sep(x, y, w);
     y += 6;
 
-    /* 复制整架无人机 + 返回 Setup */
     if (Btn((Rectangle){x, (float)y, w / 2 - 3, 22}, "Duplicate", Bl))
         DuplicateDrone(S);
     if (Btn((Rectangle){x + w / 2 + 3, (float)y, w / 2 - 3, 22}, "<- Setup", Bt))
         M = M_SETUP;
 }
 
-/* ================================================================
- *  DrawEditPanel() - 绘制 Edit 模式面板
- *
- *  参数 x/w/y 由 DrawUI 传入（面板内容区坐标）。
- * ================================================================ */
 void DrawEditPanel(int x, int w, int y) {
     DrawText("[ Edit ] Light & Trajectory", x, y, 14, Gn);
     y += 18;
 
     if (S >= 0 && S < N && D[S].act) {
-        Drone* d = &D[S];               // 选中无人机指针
+        Drone* d = &D[S];
 
-        y = DrawEditLights(x, w, y, d);         // 灯光模式
+        y = DrawEditLights(x, w, y, d);
 
         Sep(x, y, w);
         y += 6;
 
-        y = DrawEditAddWaypoint(x, w, y, d);    // 添加路径点
+        y = DrawEditAddWaypoint(x, w, y, d);
 
-        y = DrawEditWaypointList(x, w, y, d);   // 路径点列表
+        y = DrawEditWaypointList(x, w, y, d);
 
-        DrawEditPathStyle(x, w, y, d);          // 平滑模式 + 复制/返回
+        DrawEditPathStyle(x, w, y, d);
 
     } else {
-        /* 无选中无人机时 */
+
         DrawText("No drone selected.", x, y, 12, Gr);
         y += 14;
         DrawText("Click in 3D or go Setup.", x, y, 12, Gr);

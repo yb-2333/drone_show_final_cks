@@ -1,118 +1,63 @@
-/******************************************************************************
- *  main.c  -  程序入口
- *
- *  这是整个程序的起点。main() 函数做三件事：
- *    1. 初始化（窗口、相机）
- *    2. 主循环（输入→更新→渲染，每帧一次）
- *    3. 清理退出
- *
- *  【给初学者】
- *  每个C程序都有且只有一个 main() 函数，操作系统从这里开始执行程序。
- *  main() 返回 0 表示正常退出，非0表示异常退出。
- *
- *  编译命令（在 drone_light_show_cks 目录下执行）：
- *    gcc common.c utils.c drone.c render.c ui.c input.c safety.c main.c \
- *        -o drone_light_show -lraylib -lopengl32 -lgdi32 -lwinmm
- ******************************************************************************/
-/* ================================================================
- *  课程要求对照（无人机编队灯光秀模拟）
- *
- *  1. 编队初始化：设置数量/初始位置/高度  -> Setup 面板 + MakeDrone
- *  2. 轨迹设计：关键坐标点自动移动、队形变换 -> Edit 航点 + FormTransition
- *  3. 灯光控制：开关/颜色/闪烁          -> Edit 灯光+颜色 + RC()
- *  4. 实时模拟：终端显示位置和灯光状态   -> PrintDrone()（选中/播放时打印）
- *  5. 安全检测：越界/距离过近提示        -> InAirspace / CheckOverlap / LiveCheck
- *  6. 数据回放：自动保存轨迹、重开自动加载重现 -> SaveShow/LoadShow(show.json) + Show 播放
- * ================================================================ */
-#include "common.h"     // 全局变量：M, Cam, D, S, N, mt, msg, Bg, Bl, Gr, Gn, Ye, PW
-#include "utils.h"      // （main 不直接调用工具函数，但通过UI间接使用）
-#include "drone.h"      // Rst（Show模式重置）
-#include "render.h"     // Draw3D, Pick
-#include "ui.h"         // DrawUI, DrawStartScreen
-#include "input.h"      // Keys, Update
-#include "json.h"       // SaveShow/LoadShow（自动保存/加载轨迹）
+#include "common.h"
+#include "utils.h"
+#include "drone.h"
+#include "render.h"
+#include "ui.h"
+#include "input.h"
+#include "json.h"
 
-/* ================================================================
- *  CamInit() - 初始化3D相机并计算球坐标参数
- *
- *  设置一个固定的斜视角（从侧上方俯瞰场景），然后把相机位置换算成
- *  「距离 + 水平角 + 俯仰角」，方便后面绕目标环绕旋转。
- *
- *  参数（输出）:
- *    dist  - 相机到目标的距离
- *    yaw   - 水平环绕角（绕Y轴，弧度）
- *    pitch - 俯仰角（相对水平面，弧度）
- * ================================================================ */
 static void CamInit(float* dist, float* yaw, float* pitch) {
-    /* 设置一个固定的斜视角，从侧上方俯瞰场景 */
-    Cam.position   = (Vector3){55, 48, 70};      // 相机位置（站在哪个点看）
-    Cam.target     = (Vector3){20, 0, 15};       // 注视目标（看向场景中央）
-    Cam.up         = (Vector3){0, 1, 0};          // 上方向（Y轴向上）
-    Cam.fovy       = 50;                         // 视场角（视角广度，度）
-    Cam.projection = CAMERA_PERSPECTIVE;          // 透视投影（近大远小）
 
-    /* 把初始位置换算成「距离 + 水平角 + 俯仰角」，方便后面绕目标环绕 */
-    Vector3 off0 = Vector3Subtract(Cam.position, Cam.target);  // 目标指向相机的向量
-    *dist  = Vector3Length(off0);                // 相机到目标的距离
-    *yaw   = atan2f(off0.x, off0.z);             // 水平环绕角（绕Y轴，弧度）
-    *pitch = asinf(off0.y / *dist);              // 俯仰角（相对水平面，弧度）
+    Cam.position   = (Vector3){55, 48, 70};
+    Cam.target     = (Vector3){20, 0, 15};
+    Cam.up         = (Vector3){0, 1, 0};
+    Cam.fovy       = 50;
+    Cam.projection = CAMERA_PERSPECTIVE;
+
+    Vector3 off0 = Vector3Subtract(Cam.position, Cam.target);
+    *dist  = Vector3Length(off0);
+    *yaw   = atan2f(off0.x, off0.z);
+    *pitch = asinf(off0.y / *dist);
 }
 
-/* ================================================================
- *  CamRecompute() - 根据球坐标重新计算相机位置
- *
- *  缩放/旋转/聚焦后，用「距离 + 水平角 + 俯仰角」反推出相机位置。
- * ================================================================ */
 static void CamRecompute(float dist, float yaw, float pitch) {
-    float cy = cosf(pitch);                 // 俯仰角余弦 = 水平分量系数
+    float cy = cosf(pitch);
     Vector3 off = {
-        dist * cy * sinf(yaw),              // X = 水平分量 × 水平角正弦
-        dist * sinf(pitch),                 // Y = 高度
-        dist * cy * cosf(yaw)               // Z = 水平分量 × 水平角余弦
+        dist * cy * sinf(yaw),
+        dist * sinf(pitch),
+        dist * cy * cosf(yaw)
     };
-    Cam.position = Vector3Add(Cam.target, off);  // 目标 + 偏移 = 相机位置
+    Cam.position = Vector3Add(Cam.target, off);
 }
 
-/* ================================================================
- *  CamZoom() - 处理鼠标滚轮缩放（改变相机距离）
- * ================================================================ */
 static void CamZoom(float* dist) {
-    float wh = GetMouseWheelMove();         // 滚轮滚动量（+放大/-缩小）
+    float wh = GetMouseWheelMove();
     if (wh != 0) {
-        if (wh > 0) *dist *= 0.9f;          // 前滚→靠近（放大）
-        else        *dist *= 1.1f;          // 后滚→远离（缩小）
-        if (*dist < CAM_DIST_MIN)  *dist = CAM_DIST_MIN;   // 最近5米
-        if (*dist > CAM_DIST_MAX)  *dist = CAM_DIST_MAX;   // 最远120米
+        if (wh > 0) *dist *= 0.9f;
+        else        *dist *= 1.1f;
+        if (*dist < CAM_DIST_MIN)  *dist = CAM_DIST_MIN;
+        if (*dist > CAM_DIST_MAX)  *dist = CAM_DIST_MAX;
     }
 }
 
-/* ================================================================
- *  CamRotate() - 处理鼠标右键拖拽（环绕旋转视角）
- * ================================================================ */
 static void CamRotate(float* yaw, float* pitch) {
-    if (!IsMouseButtonDown(MOUSE_RIGHT_BUTTON)) return;  // 没按住右键
+    if (!IsMouseButtonDown(MOUSE_RIGHT_BUTTON)) return;
 
-    Vector2 d = GetMouseDelta();        // 本帧鼠标移动量
-    *yaw   -= d.x * 0.01f;              // 左右拖动→水平环绕
-    *pitch += d.y * 0.01f;              // 上下拖动→改变俯仰
-    if (*pitch >  CAM_PITCH_MAX) *pitch =  CAM_PITCH_MAX;  // 限制俯仰角（≈86°）
-    if (*pitch < -CAM_PITCH_MAX) *pitch = -CAM_PITCH_MAX;  // 避免翻转到地面以下
+    Vector2 d = GetMouseDelta();
+    *yaw   -= d.x * 0.01f;
+    *pitch += d.y * 0.01f;
+    if (*pitch >  CAM_PITCH_MAX) *pitch =  CAM_PITCH_MAX;
+    if (*pitch < -CAM_PITCH_MAX) *pitch = -CAM_PITCH_MAX;
 }
 
-/* ================================================================
- *  CamHandleInput() - 处理相机输入（滚轮缩放 + 右键环绕旋转）
- * ================================================================ */
 static void CamHandleInput(float* dist, float* yaw, float* pitch) {
-    CamZoom(dist);                          // 滚轮缩放
-    CamRotate(yaw, pitch);                  // 右键拖拽环绕
+    CamZoom(dist);
+    CamRotate(yaw, pitch);
 }
 
-/* ================================================================
- *  DrawHelpPanel() - 绘制左下角帮助面板（快捷键一览）
- * ================================================================ */
 static void DrawHelpPanel(void) {
-    int hy = GetScreenHeight() - 100;       // 面板顶部 Y
-    DrawRectangle(6, hy, 210, 96, Fade(BLACK, 0.7f));      // 半透明背景
+    int hy = GetScreenHeight() - 100;
+    DrawRectangle(6, hy, 210, 96, Fade(BLACK, 0.7f));
 
     DrawText("Help", 12, hy + 4, 13, Bl);
     DrawText("F1=Setup F2=Edit F3=Show", 12, hy + 20, 11, Gr);
@@ -121,11 +66,8 @@ static void DrawHelpPanel(void) {
     DrawText("Scroll=Zoom  R-Drag=Rotate", 12, hy + 62, 11, Gr);
 }
 
-/* ================================================================
- *  DrawStatusBar() - 绘制状态栏（当前模式 + 无人机数量）
- * ================================================================ */
 static void DrawStatusBar(void) {
-    int hy = GetScreenHeight() - 100;       // 与帮助面板底部对齐
+    int hy = GetScreenHeight() - 100;
 
     DrawText(TextFormat("Mode:%s  Drones:%d",
         M == M_INTRO ? "Intro" :
@@ -135,107 +77,81 @@ static void DrawStatusBar(void) {
         12, hy + 78, 11, Ye);
 }
 
-/* ================================================================
- *  DrawHelpOverlay() - 绘制左下角帮助面板 + 状态栏 + FPS
- *
- *  帮助面板列出快捷键；状态栏显示当前模式和无人机数量；
- *  顶部显示状态消息（有倒计时时）和 FPS。
- * ================================================================ */
 static void DrawHelpOverlay(void) {
-    DrawHelpPanel();                        // 左下角帮助面板
-    DrawStatusBar();                        // 状态栏
+    DrawHelpPanel();
+    DrawStatusBar();
 
-    /* 状态消息（计时器>0时显示） */
     if (mt > 0)
         DrawText(msg, GetScreenWidth() / 2 - 150, 6, 13, Gn);
 
-    /* FPS显示（右上角） */
     DrawText(TextFormat("FPS:%d", GetFPS()),
              GetScreenWidth() - PW - 50, 6, 11, Gr);
 }
 
-/* ================================================================
- *  main() - 程序入口函数
- * ================================================================ */
 int main(void) {
-    /* 关闭 stdout 缓冲，保证 printf 立即输出到终端（实时模拟用） */
+
     setvbuf(stdout, NULL, _IONBF, 0);
 
-    /* 终端启动提示：说明操作流程，播放时这里会实时打印无人机状态 */
     printf("=== Drone Light Show Simulator ===\n");
     printf("Flow: Setup -> Edit -> Show   (F1/F2/F3)\n\n");
 
-    /* ---- 窗口初始化 ---- */
-    /* 设置窗口属性：4倍抗锯齿（画面更平滑）+ 可调整大小 */
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE);
-    InitWindow(1280, 720, "Drone Light Show");  // 1280×720窗口
-    SetTargetFPS(60);                            // 目标60帧/秒
+    InitWindow(1280, 720, "Drone Light Show");
+    SetTargetFPS(60);
 
-    /* ---- 3D相机初始化（返回球坐标参数） ---- */
-    float camDist, camYaw, camPitch;        // 球坐标：距离 / 水平角 / 俯仰角
-    CamInit(&camDist, &camYaw, &camPitch);  // 初始化相机并计算球坐标
+    float camDist, camYaw, camPitch;
+    CamInit(&camDist, &camYaw, &camPitch);
 
-    /* ---- 自动加载上次保存的轨迹（数据回放：关掉重开能重现灯光秀） ----
-     * 第一次运行没有 show.json，LoadShow 失败就静默跳过，从头开始。 */
     if (LoadShow("show.json")) {
-        Rst();                          // 恢复到起点，准备播放
+        Rst();
         printf("Loaded saved show: %d drones restored (F3 to replay)\n", N);
     } else {
         printf("No saved show yet - build a new one\n");
     }
 
-    /* ==================== 主循环 ==================== */
-    /* WindowShouldClose() 在用户点关闭按钮时返回 true，循环结束 */
     while (!WindowShouldClose()) {
-        float dt = GetFrameTime();              // 本帧时间间隔（秒）
+        float dt = GetFrameTime();
 
-        Keys();                                 // ① 处理键盘快捷键
+        Keys();
 
-        /* ---- 相机输入（滚轮缩放 + 右键环绕旋转） ---- */
         CamHandleInput(&camDist, &camYaw, &camPitch);
 
-        /* ---- 根据球坐标重新计算相机位置（缩放/旋转/聚焦后都生效） ---- */
         CamRecompute(camDist, camYaw, camPitch);
 
-        /* ---- 初始界面处理 ---- */
         if (M == M_INTRO) {
-            Update(dt);                         // 更新逻辑
-            BeginDrawing();                     // 开始绘制帧
-            ClearBackground(Bg);                // 清屏
-            DrawStartScreen();                  // 画欢迎界面
-            EndDrawing();                       // 提交绘制
-            continue;                           // 跳回循环开头（跳过3D/UI渲染）
+            Update(dt);
+            BeginDrawing();
+            ClearBackground(Bg);
+            DrawStartScreen();
+            EndDrawing();
+            continue;
         }
 
-        /* ---- 3D拾取（点击选中无人机） ---- */
-        int pk = Pick();                        // 检测点击了哪架
-        if (pk >= 0) {                          // 点到了
-            if (S >= 0) D[S].sel = 0;           // 取消旧选中
-            S = pk;                             // 更新选中索引
-            D[S].sel = 1;                       // 标记新选中
-            if (M == M_SETUP) M = M_EDIT;       // Setup下点击→自动进Edit
-            PrintDrone(&D[S]);                  // 终端实时显示选中无人机
+        int pk = Pick();
+        if (pk >= 0) {
+            if (S >= 0) D[S].sel = 0;
+            S = pk;
+            D[S].sel = 1;
+            if (M == M_SETUP) M = M_EDIT;
+            PrintDrone(&D[S]);
         }
 
-        /* ---- 渲染 ---- */
-        Update(dt);                             // ② 更新逻辑
-        BeginDrawing();                         // ③ 开始绘制
-        ClearBackground(Bg);                    // 清屏（深色背景）
-        Draw3D();                               // 画3D场景
-        DrawUI();                               // 画UI面板
+        Update(dt);
+        BeginDrawing();
+        ClearBackground(Bg);
+        Draw3D();
+        DrawUI();
 
-        /* ---- 帮助面板 / 状态栏 / FPS ---- */
         DrawHelpOverlay();
 
-        DrawAlert();                            // 绘制安全告警弹窗（有告警时才显示）
+        DrawAlert();
 
-        EndDrawing();                           // ④ 提交绘制帧
+        EndDrawing();
     }
 
-    /* ---- 退出前自动保存轨迹（下次打开自动恢复） ---- */
     if (SaveShow("show.json"))
         printf("Show saved - it will restore next launch\n");
 
-    CloseWindow();                              // 关闭窗口，释放资源
-    return 0;                                   // 正常退出
+    CloseWindow();
+    return 0;
 }

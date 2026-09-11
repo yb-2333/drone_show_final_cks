@@ -1,29 +1,13 @@
-/******************************************************************************
- *  ui_show.c  -  Show 模式面板（播放控制）
- *
- *  提供回放的完整控制界面：
- *     - 速度滑块
- *     - 播放 / 暂停 / 停止 + 进度条
- *     - 演出统计面板（数量、路径长、时长、包围盒）
- *
- *  由 ui.c 的 DrawUI() 在 M_SHOW 模式下调用。
- ******************************************************************************/
-#include "ui.h"         // 自己的头文件
-#include "common.h"     // 所有全局变量
-#include "utils.h"      // Btn, Sld, Sep
-#include "drone.h"      // Rst（重置/停止回放）
-#include "stats.h"      // ComputeStats（演出统计）
+#include "ui.h"
+#include "common.h"
+#include "utils.h"
+#include "drone.h"
+#include "stats.h"
 
-/* ================================================================
- *  DrawShowPanel() 的辅助函数——按区块拆分
- * ================================================================ */
-
-/* DrawShowHeader() - 面板标题 + 就绪无人机计数 */
 static int DrawShowHeader(int x, int w, int y) {
     DrawText("[ Show ] Playback", x, y, 14, Ye);
     y += 18;
 
-    /* 统计有路径点的无人机 */
     int h = 0;
     for (int i = 0; i < N; i++)
         if (D[i].wc > 0) h++;
@@ -32,13 +16,11 @@ static int DrawShowHeader(int x, int w, int y) {
     return y + 17;
 }
 
-/* DrawShowTransport() - 速度滑块 + 播放按钮 + 进度条 + 快捷键提示 */
 static int DrawShowTransport(int x, int w, int y) {
-    /* 速度滑块 */
+
     spd = Sld((Rectangle){x, (float)y, (float)w, 22}, spd, 0.5f, 8, "Speed: %.1fx");
     y += 28;
 
-    /* 播放/暂停/停止按钮 */
     float pw = (w - 8) / 3.0f;
 
     if (Btn((Rectangle){x, (float)y, pw, 26}, "Play", Gn)) {
@@ -53,32 +35,28 @@ static int DrawShowTransport(int x, int w, int y) {
         Rst();
     y += 32;
 
-    /* 进度条 */
-    DrawRectangle(x, y, w, 10, (Color){40, 40, 55, 255});            // 背景
-    DrawRectangle(x, y, (int)(w * prog), 10, Ye);                    // 前景
-    DrawText(TextFormat("%.0f%%", prog * 100), x, y + 14, 12, Gr);   // 百分比
+    DrawRectangle(x, y, w, 10, (Color){40, 40, 55, 255});
+    DrawRectangle(x, y, (int)(w * prog), 10, Ye);
+    DrawText(TextFormat("%.0f%%", prog * 100), x, y + 14, 12, Gr);
     y += 26;
 
-    /* 快捷键提示 */
     DrawText("Space=Play/Pause  Esc=Stop", x, y, 11, Gr);
     return y + 15;
 }
 
-/* DrawShowControls() - 播放控制区（就绪数/速度/播放按钮/进度条） */
 static int DrawShowControls(int x, int w, int y) {
-    y = DrawShowHeader(x, w, y);        // 标题 + 就绪数
-    y = DrawShowTransport(x, w, y);     // 滑块/按钮/进度条
+    y = DrawShowHeader(x, w, y);
+    y = DrawShowTransport(x, w, y);
     return y;
 }
 
-/* DrawShowStats() - 演出统计面板（数量/路径/时长/包围盒） */
 static void DrawShowStats(int x, int w, int y) {
     Sep(x, y, w);
     y += 6;
     DrawText("Statistics:", x, y, 12, Bl);
     y += 14;
 
-    Stats st = ComputeStats();                          // 计算当前场景统计
+    Stats st = ComputeStats();
     DrawText(TextFormat("Drones: %d   Waypoints: %d",
         st.drones, st.waypoints), x, y, 11, Wh);
     y += 13;
@@ -90,24 +68,17 @@ static void DrawShowStats(int x, int w, int y) {
     DrawText(TextFormat("Est. duration: %.1f s", st.duration), x, y, 11, Gr);
     y += 13;
 
-    /* 播放中的已用时间 = 进度 × 预计时长；未播放显示占位符 */
     if (play)
         DrawText(TextFormat("Elapsed: %.1f s", prog * st.duration), x, y, 11, Ye);
     else
         DrawText("Elapsed: --", x, y, 11, Gr);
     y += 13;
 
-    /* 包围盒：整场演出占用的水平范围（X/Y 平面，Z 是高度） */
     DrawText(TextFormat("Bounds X: %.0f..%.0f  Y: %.0f..%.0f",
         st.bmin.x, st.bmax.x, st.bmin.y, st.bmax.y), x, y, 11, Gr);
 }
 
-/* ================================================================
- *  DrawShowPanel() - 绘制 Show 模式面板
- *
- *  参数 x/w/y 由 DrawUI 传入（面板内容区坐标）。
- * ================================================================ */
 void DrawShowPanel(int x, int w, int y) {
-    y = DrawShowControls(x, w, y);      // 播放控制区
-    DrawShowStats(x, w, y);             // 演出统计
+    y = DrawShowControls(x, w, y);
+    DrawShowStats(x, w, y);
 }

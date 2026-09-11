@@ -1,161 +1,102 @@
-/******************************************************************************
- *  ui.c  -  UI 面板框架（欢迎界面 + 面板骨架 + 告警弹窗）
- *
- *  这里只负责 UI 的"框架"：
- *    DrawStartScreen() - 初始欢迎界面
- *    DrawUI()          - 右侧面板骨架（背景、标题、模式标签栏），
- *                        再按当前模式分派到具体面板
- *    DrawAlert()       - 实时安全告警弹窗
- *
- *  三种模式的面板内容分别在：
- *    ui_setup.c（Setup）、ui_edit.c（Edit）、ui_show.c（Show）。
- ******************************************************************************/
-#include "ui.h"         // 自己的头文件
-#include "common.h"     // 所有全局变量
-#include "utils.h"      // Btn, Sep
-#include "drone.h"      // Rst（切到 Show / 关弹窗时重置回放）
-#include "safety.h"     // alertActive, alertMsg（告警弹窗数据）
+#include "ui.h"
+#include "common.h"
+#include "utils.h"
+#include "drone.h"
+#include "safety.h"
 
-/* ---- UI面板的坐标宏（只在 ui.c 内使用） ---- */
-/* PX = 面板左边界X, X = 内容区起始X, W = 内容区宽度 */
 #define PX (GetScreenWidth() - PW)
 #define X  (PX + 10)
 #define W  (PW - 20)
 
-/* ================================================================
- *  DrawStartTitle() - 绘制欢迎界面的主标题与副标题
- * ================================================================ */
 static void DrawStartTitle(int sw, int sh) {
-    /* 用 MeasureText 测出文字实际宽度，让标题和副标题在屏幕中央水平居中对齐 */
-    int tw = MeasureText("Drone Light Show", 48);          // 主标题文字宽度
-    DrawText("Drone Light Show",
-             sw / 2 - tw / 2, sh / 2 - 80, 48, Ye);        // 主标题（黄色大字，居中）
 
-    int subw = MeasureText("Drone Formation Light Show Simulator", 22);  // 副标题宽度
+    int tw = MeasureText("Drone Light Show", 48);
+    DrawText("Drone Light Show",
+             sw / 2 - tw / 2, sh / 2 - 80, 48, Ye);
+
+    int subw = MeasureText("Drone Formation Light Show Simulator", 22);
     DrawText("Drone Formation Light Show Simulator",
-             sw / 2 - subw / 2, sh / 2 - 16, 22, Wh);      // 副标题（白色，居中）
+             sw / 2 - subw / 2, sh / 2 - 16, 22, Wh);
 }
 
-/* ================================================================
- *  DrawStartHints() - 绘制欢迎界面的操作提示与快捷键
- * ================================================================ */
 static void DrawStartHints(int sw, int sh) {
     DrawText("Press any key to start",
-             sw / 2 - 140, sh / 2 + 40, 20, Gn);          // 操作提示（绿色）
+             sw / 2 - 140, sh / 2 + 40, 20, Gn);
     DrawText("F1=Setup  F2=Edit  F3=Show",
-             sw / 2 - 145, sh / 2 + 90, 16, Gr);          // 快捷键（灰色）
+             sw / 2 - 145, sh / 2 + 90, 16, Gr);
 }
 
-/* ================================================================
- *  DrawStartScreen() - 绘制初始欢迎界面
- *
- *  启动时显示，包含标题、说明和快捷键提示。
- *  按任意键进入 Setup 模式。
- * ================================================================ */
 void DrawStartScreen(void) {
-    int sw = GetScreenWidth();              // 屏幕宽度
-    int sh = GetScreenHeight();             // 屏幕高度
+    int sw = GetScreenWidth();
+    int sh = GetScreenHeight();
 
-    DrawStartTitle(sw, sh);                 // 主标题 + 副标题
-    DrawStartHints(sw, sh);                 // 操作提示 + 快捷键
+    DrawStartTitle(sw, sh);
+    DrawStartHints(sw, sh);
 }
 
-/* ================================================================
- *  DrawModeTabs() - 绘制模式切换标签栏（1.Setup / 2.Edit / 3.Show）
- *
- *  当前模式的标签用彩色高亮，其他用暗色。点击标签切换模式，
- *  进入 Show 模式时自动重置回放。
- * ================================================================ */
 static int DrawModeTabs(int x, int w, int y) {
-    const char* ms[] = {"1.Setup", "2.Edit", "3.Show"};    // 标签文字
-    const Mode  mm[] = {M_SETUP, M_EDIT, M_SHOW};          // 对应的模式值
-    Color       mc[] = {Bl, Gn, Ye};       // 标签颜色（蓝/绿/黄）
-    float       bw   = (w - 10) / 3.0f;    // 每个标签宽度
+    const char* ms[] = {"1.Setup", "2.Edit", "3.Show"};
+    const Mode  mm[] = {M_SETUP, M_EDIT, M_SHOW};
+    Color       mc[] = {Bl, Gn, Ye};
+    float       bw   = (w - 10) / 3.0f;
 
     for (int i = 0; i < 3; i++) {
-        Color bg = (M == mm[i]) ? mc[i] : Bt;   // 当前模式=彩色，其他=暗色
+        Color bg = (M == mm[i]) ? mc[i] : Bt;
         if (Btn((Rectangle){x + i * (bw + 4), (float)y, bw, 26}, ms[i], bg)) {
-            M = mm[i];                      // 切换模式
-            if (M == M_SHOW) Rst();         // 进入Show模式自动重置
+            M = mm[i];
+            if (M == M_SHOW) Rst();
         }
     }
     y += 34;
-    Sep(x, y, w);                           // 分隔线
+    Sep(x, y, w);
     return y + 8;
 }
 
-/* ================================================================
- *  DrawUI() - 绘制右侧UI面板
- *
- *  先画面板骨架（背景、标题、模式标签栏），再根据当前模式 M，
- *  把内容区的坐标 (x, w, y) 交给对应的面板函数去画具体内容。
- * ================================================================ */
 void DrawUI(void) {
-    int sh = GetScreenHeight();             // 屏幕高度
-    int px = PX;                            // 面板左边界
-    int x  = X;                             // 内容区X
-    int w  = W;                             // 内容区宽度
-    int y  = 8;                             // 当前Y坐标（从上往下画）
+    int sh = GetScreenHeight();
+    int px = PX;
+    int x  = X;
+    int w  = W;
+    int y  = 8;
 
-    /* ---- 面板背景 ---- */
-    DrawRectangle(px, 0, PW, sh, Pn);       // 深色半透明面板
-    DrawLine(px, 0, px, sh, Br);            // 左边框线（分隔3D和UI）
+    DrawRectangle(px, 0, PW, sh, Pn);
+    DrawLine(px, 0, px, sh, Br);
 
-    /* ---- 标题 ---- */
     DrawText("Drone Light Show", x, y, 16, Bl);
     y += 22;
 
-    /* ---- 模式切换标签栏 ---- */
     y = DrawModeTabs(x, w, y);
 
-    /* ---- 按当前模式分派到对应的面板绘制函数 ---- */
     if (M == M_SETUP)         DrawSetupPanel(x, w, y);
     else if (M == M_EDIT)     DrawEditPanel(x, w, y);
     else if (M == M_SHOW)     DrawShowPanel(x, w, y);
 }
 
-/* ================================================================
- *  DrawAlertBox() - 绘制告警弹窗本体（背景/标题/详情/OK按钮）
- *
- *  返回 1 表示用户点了 OK 按钮，否则返回 0。
- * ================================================================ */
 static int DrawAlertBox(Rectangle box) {
     DrawRectangleRec(box, (Color){42, 44, 60, 255});
-    DrawRectangleLinesEx(box, 2, Rd);       // 红色边框
+    DrawRectangleLinesEx(box, 2, Rd);
 
-    /* 标题 */
     DrawText("Safety Warning", (int)box.x + 20, (int)box.y + 16, 20, Rd);
 
-    /* 分隔线 */
     Sep((int)box.x + 20, (int)box.y + 48, (int)box.width - 40);
 
-    /* 详情文字 */
     DrawText(alertMsg, (int)box.x + 20, (int)box.y + 60, 15, Wh);
 
-    /* OK 按钮：关闭弹窗并停止回放 */
     Rectangle ok = { box.x + box.width - 90, box.y + box.height - 40, 70, 26 };
     return Btn(ok, "OK", Gn);
 }
 
-/* ================================================================
- *  DrawAlert() - 绘制实时安全告警弹窗
- *
- *  播放中检测到越界或碰撞时，弹出一个居中的模态对话框，
- *  显示问题详情。点击 OK 关闭弹窗并停止回放。
- * ================================================================ */
 void DrawAlert(void) {
-    if (!alertActive) return;               // 没有告警就不画
+    if (!alertActive) return;
 
     int sw = GetScreenWidth();
     int sh = GetScreenHeight();
 
-    /* 半透明遮罩，盖住整个窗口，制造"模态"效果 */
     DrawRectangle(0, 0, sw, sh, Fade(BLACK, 0.6f));
 
-    /* 弹窗矩形（居中），交给 DrawAlertBox 画本体 */
     Rectangle box = { sw / 2.0f - 210, sh / 2.0f - 100, 420, 200 };
     if (DrawAlertBox(box)) {
-        alertActive = false;                // 关闭弹窗
-        Rst();                              // 停止并重置回放
+        alertActive = false;
+        Rst();
     }
 }

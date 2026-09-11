@@ -1,65 +1,38 @@
-/******************************************************************************
- *  drone.h  -  无人机操作 + 回放系统声明
- *
- *  包含：创建/删除无人机、3D绘制无人机、回放动画控制。
- ******************************************************************************/
 #ifndef DRONE_H
 #define DRONE_H
 
-#include "common.h"     // 需要 Drone 结构体、Color 等类型定义
+#include "common.h"
 
-/* ==================== 无人机操作 ==================== */
-
-/* 创建一架新无人机，使用全局表单数据（sx,sy,sz,ic） */
 void MakeDrone(void);
 
-/* 删除第 i 架无人机（后面的元素前移覆盖） */
 void DelDrone(int i);
 
-/* 复制第 i 架无人机（含航点），新机沿 X 轴偏移 1 米 */
 void DuplicateDrone(int i);
 
-/* 把灯光模式转成可读名字（终端打印用） */
 const char* LightName(Light l);
 
-/* 在终端打印一架无人机的实时状态（位置+颜色+灯光） */
 void PrintDrone(const Drone* d);
 
-/* 把某架无人机的起点坐标写入 sx/sy/sz 输入框（Setup 界面用） */
 void FillCoords(const Drone* d);
 
-/* 把 Setup 坐标输入框的值应用到选中无人机（移动它），按回车触发 */
 void ApplySetupCoords(void);
 
-/* 根据无人机的灯光模式和选中状态，计算它在3D场景中的显示颜色 */
 Color RC(Drone* d);
 
-/* 在3D场景中绘制一架无人机（灯光球+光晕+核心+路径线） */
 void DD(Drone* d);
 
-/* ==================== 回放系统 ==================== */
-
-/* 重置回放：所有无人机回到起点，播放进度归零 */
 void Rst(void);
 
-/* 每帧更新回放动画：让无人机沿着路径点飞行 */
 void Upd(float dt);
 
-/* ==================== 编队变换 ==================== */
-
-/* 把所有无人机的起始位置重新排列成圆形编队 */
 void FormCircle(void);
 
-/* 把所有无人机的起始位置重新排列成直线编队 */
 void FormLine(void);
 
-/* 把所有无人机的起始位置重新排列成网格编队 */
 void FormGrid(void);
 
-/* 一键队形变换动画：给每架无人机追加飞到目标队形的航点（type: 0圆 1线 2网格） */
 void FormTransition(int type);
 
-/* 一键生成示例表演：12架无人机圆形起点+灯光+队形变换动画，供新手快速体验 */
 void MakeDemo(void);
 
-#endif  /* DRONE_H */
+#endif
