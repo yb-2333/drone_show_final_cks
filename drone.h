@@ -33,6 +33,8 @@ void FormGrid(void);
 
 void FormTransition(int type);
 
+void FormRotate(float deg);
+
 void MakeDemo(void);
 
 #endif

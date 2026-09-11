@@ -383,6 +383,31 @@ void FormTransition(int type) {
     Msg("Fly to %s: %d waypoints added", name, added);
 }
 
+void FormRotate(float deg) {
+    if (N <= 0) return;
+    float cx = GROUND / 2;
+    float cy = GROUND / 2;
+    float da = deg * PI / 180.0f;
+
+    int added = 0;
+    for (int i = 0; i < N; i++) {
+        if (!D[i].act) continue;
+        if (D[i].wc >= MAX_WP) continue;
+        Pt c = D[i].wc > 0 ? D[i].wp[D[i].wc - 1].p : D[i].start;
+        float a = atan2f(c.y - cy, c.x - cx) + da;
+        float r = sqrtf((c.x - cx) * (c.x - cx) + (c.y - cy) * (c.y - cy));
+        D[i].wp[D[i].wc].p = (Pt){
+            Clampf(cx + cosf(a) * r, 0.5f, GROUND - 0.5f),
+            Clampf(cy + sinf(a) * r, 0.5f, GROUND - 0.5f),
+            c.z
+        };
+        D[i].wc++;
+        added++;
+    }
+
+    Msg("Rotate %.0f deg: %d waypoints added", deg, added);
+}
+
 void MakeDemo(void) {
     N = 0;
     S = -1;
@@ -402,8 +427,7 @@ void MakeDemo(void) {
     for (int i = 0; i < N; i++)
         D[i].light = lights[i % 5];
 
-    FormTransition(1);
-    FormTransition(2);
+    FormRotate(90.0f);
     Rst();
 
     Msg("Demo loaded: %d drones - go to Show and Play", N);
